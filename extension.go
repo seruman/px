@@ -116,16 +116,25 @@ type extDef struct {
 	args []string
 }
 
-func runExtensions(lineSeq iter.Seq[string], exts []extDef, width int) ([]string, []Span, error) {
+type resolvedMatcher struct {
+	name    string
+	builtin MatchFunc
+	ext     *extDef
+}
+
+func runMatchers(lineSeq iter.Seq[string], matchers []resolvedMatcher, width int) ([]string, []Span, error) {
 	type proc struct {
 		cmd   *exec.Cmd
 		stdin io.WriteCloser
 		out   bytes.Buffer
 	}
 
-	procs := make([]*proc, len(exts))
-	for i, ext := range exts {
-		cmd := exec.Command(ext.bin, ext.args...)
+	var procs []*proc
+	for _, m := range matchers {
+		if m.ext == nil {
+			continue
+		}
+		cmd := exec.Command(m.ext.bin, m.ext.args...)
 		cmd.Stderr = os.Stderr
 		if width > 0 {
 			cmd.Env = append(os.Environ(), fmt.Sprintf("PX_WIDTH=%d", width))
@@ -133,21 +142,28 @@ func runExtensions(lineSeq iter.Seq[string], exts []extDef, width int) ([]string
 
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
-			return nil, nil, fmt.Errorf("stdin pipe for %s: %w", ext.bin, err)
+			return nil, nil, fmt.Errorf("stdin pipe for %s: %w", m.ext.bin, err)
 		}
 
 		p := &proc{cmd: cmd, stdin: stdin}
 		cmd.Stdout = &p.out
 
 		if err := cmd.Start(); err != nil {
-			return nil, nil, fmt.Errorf("start %s: %w", ext.bin, err)
+			return nil, nil, fmt.Errorf("start %s: %w", m.ext.bin, err)
 		}
-		procs[i] = p
+		procs = append(procs, p)
 	}
 
 	var lines []string
+	var spans []Span
 	for line := range lineSeq {
+		lineIdx := len(lines)
 		lines = append(lines, line)
+		for _, m := range matchers {
+			if m.builtin != nil {
+				spans = append(spans, m.builtin(lineIdx, line)...)
+			}
+		}
 		for _, p := range procs {
 			fmt.Fprintln(p.stdin, line)
 		}
@@ -156,7 +172,6 @@ func runExtensions(lineSeq iter.Seq[string], exts []extDef, width int) ([]string
 		p.stdin.Close()
 	}
 
-	var spans []Span
 	for _, p := range procs {
 		if err := p.cmd.Wait(); err != nil {
 			return nil, nil, fmt.Errorf("extension failed: %w", err)

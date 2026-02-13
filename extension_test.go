@@ -206,7 +206,10 @@ awk '{
 	assert.NilError(t, err)
 
 	inputLines := []string{"say hello world", "no match here", "hello again"}
-	lines, spans, err := runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 0)
+	ext := extDef{bin, nil}
+	lines, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+		{name: "test", ext: &ext},
+	}, 0)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, lines, inputLines)
 	assert.DeepEqual(t, spans, []Span{
@@ -234,15 +237,21 @@ fi
 
 	inputLines := []string{"hello world"}
 
+	ext := extDef{bin, nil}
+
 	t.Run("width zero omits PX_WIDTH", func(t *testing.T) {
-		_, spans, err := runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 0)
+		_, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+			{name: "env", ext: &ext},
+		}, 0)
 		assert.NilError(t, err)
 		var noSpans []Span
 		assert.DeepEqual(t, spans, noSpans)
 	})
 
 	t.Run("width set exports PX_WIDTH", func(t *testing.T) {
-		_, spans, err := runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 80)
+		_, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+			{name: "env", ext: &ext},
+		}, 80)
 		assert.NilError(t, err)
 		assert.DeepEqual(t, spans, []Span{
 			{Line: 0, Start: 0, End: 5, Text: "hello"},
@@ -266,6 +275,42 @@ exit 1
 	assert.NilError(t, err)
 
 	inputLines := []string{"hello"}
-	_, _, err = runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 0)
+	ext := extDef{bin, nil}
+	_, _, err = runMatchers(slices.Values(inputLines), []resolvedMatcher{
+		{name: "fail", ext: &ext},
+	}, 0)
 	assert.Error(t, err, "extension failed: exit status 1")
+}
+
+func TestRunMatchersMixed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script test requires unix")
+	}
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "px-test")
+
+	script := `#!/bin/sh
+awk '{
+	idx = index($0, "hello")
+	if (idx > 0) {
+		printf "%d:%d:%d\n", NR, idx - 1, idx - 1 + 5
+	}
+}'
+`
+	err := os.WriteFile(bin, []byte(script), 0o755)
+	assert.NilError(t, err)
+
+	inputLines := []string{"hello https://example.com"}
+	ext := extDef{bin, nil}
+	lines, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+		{name: "url", builtin: matchURLs},
+		{name: "test", ext: &ext},
+	}, 0)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, lines, inputLines)
+	assert.DeepEqual(t, spans, []Span{
+		{Line: 0, Start: 6, End: 25, Text: "https://example.com"},
+		{Line: 0, Start: 0, End: 5, Text: "hello"},
+	})
 }

@@ -74,44 +74,49 @@ func main() {
 
 	lineSeq := unwrap(scanLines(os.Stdin), width)
 
-	var lines []string
-	var spans []Span
-	if len(extensions) > 0 {
-		var defs []extDef
-		for _, ext := range extensions {
-			words, err := shellSplit(ext)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "px: invalid -e value %q: %v\n", ext, err)
-				os.Exit(1)
-			}
-			if len(words) == 0 {
-				fmt.Fprintf(os.Stderr, "px: empty -e value\n")
-				os.Exit(1)
-			}
-			bin, err := exec.LookPath("px-" + words[0])
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "px: %v\n", err)
-				os.Exit(1)
-			}
-			defs = append(defs, extDef{bin, words[1:]})
-		}
+	if len(extensions) == 0 {
+		extensions = []string{"paths"}
+	}
 
-		var err error
-		lines, spans, err = runExtensions(lineSeq, defs, width)
+	var matchers []resolvedMatcher
+	for _, ext := range extensions {
+		words, err := shellSplit(ext)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "px: %v\n", err)
+			fmt.Fprintf(os.Stderr, "px: invalid -e value %q: %v\n", ext, err)
 			os.Exit(1)
 		}
-		slices.SortFunc(spans, func(a, b Span) int {
-			if c := cmp.Compare(a.Line, b.Line); c != 0 {
-				return c
-			}
-			return cmp.Compare(a.Start, b.Start)
-		})
-	} else {
-		lines = slices.Collect(lineSeq)
-		spans = findPaths(lines)
+		if len(words) == 0 {
+			fmt.Fprintf(os.Stderr, "px: empty -e value\n")
+			os.Exit(1)
+		}
+		name := words[0]
+		if bin, lookErr := exec.LookPath("px-" + name); lookErr == nil {
+			matchers = append(matchers, resolvedMatcher{
+				name: name,
+				ext:  &extDef{bin, words[1:]},
+			})
+		} else if fn, ok := builtinMatchers[name]; ok {
+			matchers = append(matchers, resolvedMatcher{
+				name:    name,
+				builtin: fn,
+			})
+		} else {
+			fmt.Fprintf(os.Stderr, "px: unknown matcher %q (no px-%s in PATH and no built-in)\n", name, name)
+			os.Exit(1)
+		}
 	}
+
+	lines, spans, err := runMatchers(lineSeq, matchers, width)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "px: %v\n", err)
+		os.Exit(1)
+	}
+	slices.SortFunc(spans, func(a, b Span) int {
+		if c := cmp.Compare(a.Line, b.Line); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Start, b.Start)
+	})
 
 	if len(spans) == 0 {
 		fmt.Fprintf(os.Stderr, "px: no matches found in input\n")
