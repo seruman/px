@@ -1,15 +1,25 @@
 package main
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
-	"io"
 	"os"
+	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
 	"golang.org/x/term"
 )
+
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ", ") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
 
 func ttyWidth() (int, error) {
 	f, err := os.Open("/dev/tty")
@@ -26,12 +36,19 @@ func ttyWidth() (int, error) {
 }
 
 func main() {
+	var extensions stringSlice
 	widthFlag := flag.String("width", "", "terminal width for soft-wrap rejoining (\"auto\" or integer)")
+	flag.Var(&extensions, "e", "extension to run (e.g. -e url or -e 'ip --v6'); repeatable")
 	flag.Parse()
 
+	if flag.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "px: unexpected argument %q (use -e to specify extensions)\n", flag.Args()[0])
+		os.Exit(1)
+	}
+
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprintf(os.Stderr, "Usage: <command> | px\n")
-		fmt.Fprintf(os.Stderr, "Reads piped text, finds file paths, and presents an interactive picker.\n")
+		fmt.Fprintf(os.Stderr, "Usage: <command> | px [-e <ext>]...\n")
+		fmt.Fprintf(os.Stderr, "Reads piped text, finds matches, and presents an interactive picker.\n")
 		os.Exit(1)
 	}
 
@@ -55,28 +72,65 @@ func main() {
 		width = w
 	}
 
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "px: read stdin: %v\n", err)
-		os.Exit(1)
+	lineSeq := unwrap(scanLines(os.Stdin), width)
+
+	var lines []string
+	var spans []Span
+	if len(extensions) > 0 {
+		type extDef struct {
+			bin  string
+			args []string
+		}
+		var defs []extDef
+		for _, ext := range extensions {
+			words, err := shellSplit(ext)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "px: invalid -e value %q: %v\n", ext, err)
+				os.Exit(1)
+			}
+			if len(words) == 0 {
+				fmt.Fprintf(os.Stderr, "px: empty -e value\n")
+				os.Exit(1)
+			}
+			bin, err := exec.LookPath("px-" + words[0])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "px: %v\n", err)
+				os.Exit(1)
+			}
+			defs = append(defs, extDef{bin, words[1:]})
+		}
+
+		if len(defs) == 1 {
+			var err error
+			lines, spans, err = runExtension(defs[0].bin, lineSeq, defs[0].args, width)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "px: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			lines = slices.Collect(lineSeq)
+			for _, d := range defs {
+				_, extSpans, err := runExtension(d.bin, slices.Values(lines), d.args, width)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "px: %v\n", err)
+					os.Exit(1)
+				}
+				spans = append(spans, extSpans...)
+			}
+			slices.SortFunc(spans, func(a, b Span) int {
+				if c := cmp.Compare(a.Line, b.Line); c != 0 {
+					return c
+				}
+				return cmp.Compare(a.Start, b.Start)
+			})
+		}
+	} else {
+		lines = slices.Collect(lineSeq)
+		spans = findPaths(lines)
 	}
 
-	if len(data) == 0 {
-		os.Exit(0)
-	}
-
-	lines := strings.Split(string(data), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	if width > 0 {
-		lines = unwrapLines(lines, width)
-	}
-
-	spans := findPaths(lines)
 	if len(spans) == 0 {
-		fmt.Fprintf(os.Stderr, "px: no paths found in input\n")
+		fmt.Fprintf(os.Stderr, "px: no matches found in input\n")
 		os.Exit(0)
 	}
 
@@ -91,7 +145,7 @@ func main() {
 		os.Exit(130)
 	}
 
-	for _, path := range selected {
-		fmt.Println(path)
+	for _, s := range selected {
+		fmt.Println(s)
 	}
 }

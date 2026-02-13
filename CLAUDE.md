@@ -79,7 +79,7 @@ bootty spawn --name picker
 # Pipe input through px
 bootty type -s picker "echo -e 'error in ./src/main.go\nsee /tmp/log.txt' | ./px"
 bootty key -s picker Enter
-bootty wait -s picker "paths"
+bootty wait -s picker "matches"
 
 # Navigate and select
 bootty key -s picker j

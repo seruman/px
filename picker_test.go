@@ -20,11 +20,11 @@ func TestPickerNavigation(t *testing.T) {
 	p.rows = 10
 
 	assert.Equal(t, p.cursor, 0)
-	assert.Equal(t, p.spans[p.cursor].Path, "./src/main.go")
+	assert.Equal(t, p.spans[p.cursor].Text, "./src/main.go")
 
 	p.moveDown()
 	assert.Equal(t, p.cursor, 1)
-	assert.Equal(t, p.spans[p.cursor].Path, "/tmp/log.txt")
+	assert.Equal(t, p.spans[p.cursor].Text, "/tmp/log.txt")
 
 	// Down at bottom stays at bottom.
 	p.moveDown()
@@ -57,7 +57,7 @@ func TestPickerToggleSelection(t *testing.T) {
 	assert.Assert(t, !exists)
 }
 
-func TestPickerSelectedPathsDefault(t *testing.T) {
+func TestPickerSelectedDefault(t *testing.T) {
 	lines := []string{
 		"error in ./src/main.go",
 		"see also /tmp/log.txt",
@@ -65,11 +65,11 @@ func TestPickerSelectedPathsDefault(t *testing.T) {
 	spans := findPaths(lines)
 	p := newPicker(lines, spans)
 
-	got := p.selectedPaths()
+	got := p.selected()
 	assert.DeepEqual(t, got, []string{"./src/main.go"})
 }
 
-func TestPickerSelectedPathsExplicit(t *testing.T) {
+func TestPickerSelectedExplicit(t *testing.T) {
 	lines := []string{
 		"error in ./src/main.go",
 		"see also /tmp/log.txt",
@@ -81,7 +81,7 @@ func TestPickerSelectedPathsExplicit(t *testing.T) {
 	p.moveDown()
 	p.toggleCurrent()
 
-	got := p.selectedPaths()
+	got := p.selected()
 	assert.DeepEqual(t, got, []string{"./src/main.go", "/tmp/log.txt"})
 }
 
@@ -100,7 +100,7 @@ func TestPickerDuplicatePaths(t *testing.T) {
 	p.toggleCurrent()
 	assert.Equal(t, p.sel[0], true)
 
-	got := p.selectedPaths()
+	got := p.selected()
 	assert.DeepEqual(t, got, []string{"src/main.go"})
 }
 
@@ -281,18 +281,18 @@ func TestPickerSpanStyle(t *testing.T) {
 	p := newPicker(lines, spans)
 
 	// Cursor on first span (src/main.go at position 0).
-	cursorPath := p.spans[p.cursor].Path
+	cursorText := p.spans[p.cursor].Text
 
 	// Cursor span: reverse video.
-	got := p.spanStyle("src/main.go", true, cursorPath)
+	got := p.spanStyle("src/main.go", true, cursorText)
 	assert.Equal(t, got, styleCursor)
 
 	// Same path, not cursor: blue underline.
-	got = p.spanStyle("src/main.go", false, cursorPath)
+	got = p.spanStyle("src/main.go", false, cursorText)
 	assert.Equal(t, got, styleSamePath)
 
 	// Different path, not cursor: plain underline.
-	got = p.spanStyle("other/file.go", false, cursorPath)
+	got = p.spanStyle("other/file.go", false, cursorText)
 	assert.Equal(t, got, stylePath)
 
 	// Selected path, not cursor, not same as cursor: green underline.
@@ -300,13 +300,13 @@ func TestPickerSpanStyle(t *testing.T) {
 	p.moveDown()
 	p.toggleCurrent() // select other/file.go
 	p.moveFirst()
-	cursorPath = p.spans[p.cursor].Path
-	got = p.spanStyle("other/file.go", false, cursorPath)
+	cursorText = p.spans[p.cursor].Text
+	got = p.spanStyle("other/file.go", false, cursorText)
 	assert.Equal(t, got, styleSelected)
 
 	// Cursor + selected.
 	p.toggleCurrent() // select src/main.go
-	got = p.spanStyle("src/main.go", true, cursorPath)
+	got = p.spanStyle("src/main.go", true, cursorText)
 	assert.Equal(t, got, styleCursorSelected)
 }
 
@@ -321,7 +321,7 @@ func TestPickerStatusLine(t *testing.T) {
 	p.rows = 5
 
 	status := p.statusLine()
-	assert.Equal(t, status, " 1/2 paths | 0 selected | Tab:select  Enter:confirm  Esc/q:cancel")
+	assert.Equal(t, status, " 1/2 matches | 0 selected | Tab:select  Enter:confirm  Esc/q:cancel")
 }
 
 func TestPickerSearch(t *testing.T) {
@@ -362,7 +362,7 @@ func TestPickerSearch(t *testing.T) {
 	assert.Equal(t, p.searching, false)
 	assert.DeepEqual(t, p.searchHits, []int{0, 2})
 	assert.Equal(t, p.cursor, 0)
-	assert.Equal(t, p.statusLine(), " 1/3 paths | 0 selected | Tab:select  Enter:confirm  Esc/q:cancel [/main: 1/2]")
+	assert.Equal(t, p.statusLine(), " 1/3 matches | 0 selected | Tab:select  Enter:confirm  Esc/q:cancel [/main: 1/2]")
 }
 
 func TestPickerSearchNext(t *testing.T) {

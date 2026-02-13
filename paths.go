@@ -1,16 +1,19 @@
 package main
 
 import (
+	"bufio"
+	"io"
+	"iter"
 	"regexp"
 	"strings"
 	"unicode"
 )
 
-type PathSpan struct {
+type Span struct {
 	Line  int    // 0-based line index
 	Start int    // byte offset in line (inclusive)
 	End   int    // byte offset in line (exclusive)
-	Path  string // cleaned path (no :line:col, no quotes)
+	Text  string // cleaned match text
 }
 
 var (
@@ -33,36 +36,53 @@ func looksLikePath(s string) bool {
 	return specialFileRe.MatchString(s)
 }
 
-func unwrapLines(lines []string, width int) []string {
-	if width <= 0 {
-		return lines
-	}
-
-	var out []string
-	var buf string
-	for _, line := range lines {
-		buf += line
-		if len(line) == width {
-			continue
+func scanLines(r io.Reader) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			if !yield(scanner.Text()) {
+				return
+			}
 		}
-		out = append(out, buf)
-		buf = ""
 	}
-	if buf != "" {
-		out = append(out, buf)
-	}
-	return out
 }
 
-func findPaths(lines []string) []PathSpan {
-	var spans []PathSpan
+func unwrap(lines iter.Seq[string], width int) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		if width <= 0 {
+			for line := range lines {
+				if !yield(line) {
+					return
+				}
+			}
+			return
+		}
+		var buf string
+		for line := range lines {
+			buf += line
+			if len(line) == width {
+				continue
+			}
+			if !yield(buf) {
+				return
+			}
+			buf = ""
+		}
+		if buf != "" {
+			yield(buf)
+		}
+	}
+}
+
+func findPaths(lines []string) []Span {
+	var spans []Span
 	for i, line := range lines {
 		spans = tokenizeLine(spans, i, line)
 	}
 	return spans
 }
 
-func tokenizeLine(spans []PathSpan, lineIdx int, line string) []PathSpan {
+func tokenizeLine(spans []Span, lineIdx int, line string) []Span {
 	off := 0
 	for off < len(line) {
 		if line[off] == ' ' || line[off] == '\t' {
@@ -101,11 +121,11 @@ func tokenizeLine(spans []PathSpan, lineIdx int, line string) []PathSpan {
 			continue
 		}
 
-		spans = append(spans, PathSpan{
+		spans = append(spans, Span{
 			Line:  lineIdx,
 			Start: tokStart,
 			End:   tokEnd,
-			Path:  cleaned,
+			Text:  cleaned,
 		})
 	}
 	return spans

@@ -11,7 +11,7 @@ import (
 
 type Picker struct {
 	lines   []string
-	spans   []PathSpan
+	spans   []Span
 	unique  []string
 	pathIdx map[string]int
 	sel     map[int]bool
@@ -29,7 +29,7 @@ type Picker struct {
 	searchPos  int            // current position in searchHits for n/N cycling
 }
 
-func newPicker(lines []string, spans []PathSpan) *Picker {
+func newPicker(lines []string, spans []Span) *Picker {
 	p := &Picker{
 		lines:   lines,
 		spans:   spans,
@@ -37,9 +37,9 @@ func newPicker(lines []string, spans []PathSpan) *Picker {
 		sel:     make(map[int]bool),
 	}
 	for _, s := range spans {
-		if _, ok := p.pathIdx[s.Path]; !ok {
-			p.pathIdx[s.Path] = len(p.unique)
-			p.unique = append(p.unique, s.Path)
+		if _, ok := p.pathIdx[s.Text]; !ok {
+			p.pathIdx[s.Text] = len(p.unique)
+			p.unique = append(p.unique, s.Text)
 		}
 	}
 	return p
@@ -56,22 +56,22 @@ func (p *Picker) ensureVisible() {
 	}
 }
 
-// If none were explicitly toggled, returns the path under the cursor.
-func (p *Picker) selectedPaths() []string {
+// If none were explicitly toggled, returns the text under the cursor.
+func (p *Picker) selected() []string {
 	if len(p.sel) == 0 {
-		return []string{p.spans[p.cursor].Path}
+		return []string{p.spans[p.cursor].Text}
 	}
-	var paths []string
-	for i, path := range p.unique {
+	var texts []string
+	for i, text := range p.unique {
 		if p.sel[i] {
-			paths = append(paths, path)
+			texts = append(texts, text)
 		}
 	}
-	return paths
+	return texts
 }
 
 func (p *Picker) toggleCurrent() {
-	idx := p.pathIdx[p.spans[p.cursor].Path]
+	idx := p.pathIdx[p.spans[p.cursor].Text]
 	if p.sel[idx] {
 		delete(p.sel, idx)
 	} else {
@@ -122,7 +122,7 @@ func (p *Picker) updateSearchHits() {
 		return
 	}
 	for i, s := range p.spans {
-		if p.searchRe.MatchString(s.Path) {
+		if p.searchRe.MatchString(s.Text) {
 			p.searchHits = append(p.searchHits, i)
 		}
 	}
@@ -272,7 +272,7 @@ func (p *Picker) run() ([]string, error) {
 			action := p.handleKey(ev)
 			switch action {
 			case actionConfirm:
-				return p.selectedPaths(), nil
+				return p.selected(), nil
 			case actionCancel:
 				return nil, nil
 			}
@@ -419,8 +419,8 @@ var (
 	styleStatusBar = vaxis.Style{Attribute: vaxis.AttrReverse}
 )
 
-func (p *Picker) spanStyle(path string, isCursor bool, cursorPath string) vaxis.Style {
-	idx := p.pathIdx[path]
+func (p *Picker) spanStyle(text string, isCursor bool, cursorText string) vaxis.Style {
+	idx := p.pathIdx[text]
 	selected := p.sel[idx]
 
 	switch {
@@ -430,18 +430,18 @@ func (p *Picker) spanStyle(path string, isCursor bool, cursorPath string) vaxis.
 		return styleCursor
 	case selected:
 		return styleSelected
-	case path == cursorPath:
+	case text == cursorText:
 		return styleSamePath
 	default:
 		return stylePath
 	}
 }
 
-func (p *Picker) drawLine(win vaxis.Window, row, lineIdx int, curSpan PathSpan) {
+func (p *Picker) drawLine(win vaxis.Window, row, lineIdx int, curSpan Span) {
 	line := p.lines[lineIdx]
 
 	type indexedSpan struct {
-		span PathSpan
+		span Span
 		idx  int // index in p.spans
 	}
 
@@ -464,7 +464,7 @@ func (p *Picker) drawLine(win vaxis.Window, row, lineIdx int, curSpan PathSpan) 
 			segs = append(segs, vaxis.Segment{Text: line[pos:s.Start]})
 		}
 		isCursor := s.Line == curSpan.Line && s.Start == curSpan.Start
-		style := p.spanStyle(s.Path, isCursor, curSpan.Path)
+		style := p.spanStyle(s.Text, isCursor, curSpan.Text)
 		spanText := line[s.Start:s.End]
 		if p.searchRe != nil && p.isSearchHit(is.idx) {
 			matchStyle := style
@@ -500,7 +500,7 @@ func (p *Picker) statusLine() string {
 		return fmt.Sprintf(" /%s_", p.searchBuf)
 	}
 
-	status := fmt.Sprintf(" %d/%d paths | %d selected | Tab:select  Enter:confirm  Esc/q:cancel",
+	status := fmt.Sprintf(" %d/%d matches | %d selected | Tab:select  Enter:confirm  Esc/q:cancel",
 		p.cursor+1, len(p.spans), len(p.sel))
 
 	if p.searchRe != nil {
