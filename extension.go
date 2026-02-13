@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"os/exec"
@@ -110,49 +111,69 @@ func parseSpanLine(s string, lines []string) (Span, error) {
 	}, nil
 }
 
-func runExtension(bin string, lineSeq iter.Seq[string], args []string, width int) ([]string, []Span, error) {
-	cmd := exec.Command(bin, args...)
-	cmd.Stderr = os.Stderr
+type extDef struct {
+	bin  string
+	args []string
+}
 
-	if width > 0 {
-		cmd.Env = append(os.Environ(), fmt.Sprintf("PX_WIDTH=%d", width))
+func runExtensions(lineSeq iter.Seq[string], exts []extDef, width int) ([]string, []Span, error) {
+	type proc struct {
+		cmd   *exec.Cmd
+		stdin io.WriteCloser
+		out   bytes.Buffer
 	}
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("stdin pipe: %w", err)
-	}
+	procs := make([]*proc, len(exts))
+	for i, ext := range exts {
+		cmd := exec.Command(ext.bin, ext.args...)
+		cmd.Stderr = os.Stderr
+		if width > 0 {
+			cmd.Env = append(os.Environ(), fmt.Sprintf("PX_WIDTH=%d", width))
+		}
 
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			return nil, nil, fmt.Errorf("stdin pipe for %s: %w", ext.bin, err)
+		}
 
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start extension: %w", err)
+		p := &proc{cmd: cmd, stdin: stdin}
+		cmd.Stdout = &p.out
+
+		if err := cmd.Start(); err != nil {
+			return nil, nil, fmt.Errorf("start %s: %w", ext.bin, err)
+		}
+		procs[i] = p
 	}
 
 	var lines []string
 	for line := range lineSeq {
 		lines = append(lines, line)
-		fmt.Fprintln(stdin, line)
+		for _, p := range procs {
+			fmt.Fprintln(p.stdin, line)
+		}
 	}
-	stdin.Close()
-
-	if err := cmd.Wait(); err != nil {
-		return nil, nil, fmt.Errorf("extension failed: %w", err)
+	for _, p := range procs {
+		p.stdin.Close()
 	}
 
 	var spans []Span
-	scanner := bufio.NewScanner(&stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
+	for _, p := range procs {
+		if err := p.cmd.Wait(); err != nil {
+			return nil, nil, fmt.Errorf("extension failed: %w", err)
 		}
-		span, err := parseSpanLine(line, lines)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse extension output: %w", err)
+
+		scanner := bufio.NewScanner(&p.out)
+		for scanner.Scan() {
+			text := scanner.Text()
+			if text == "" {
+				continue
+			}
+			span, err := parseSpanLine(text, lines)
+			if err != nil {
+				return nil, nil, fmt.Errorf("parse extension output: %w", err)
+			}
+			spans = append(spans, span)
 		}
-		spans = append(spans, span)
 	}
 
 	return lines, spans, nil

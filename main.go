@@ -77,10 +77,6 @@ func main() {
 	var lines []string
 	var spans []Span
 	if len(extensions) > 0 {
-		type extDef struct {
-			bin  string
-			args []string
-		}
 		var defs []extDef
 		for _, ext := range extensions {
 			words, err := shellSplit(ext)
@@ -100,30 +96,18 @@ func main() {
 			defs = append(defs, extDef{bin, words[1:]})
 		}
 
-		if len(defs) == 1 {
-			var err error
-			lines, spans, err = runExtension(defs[0].bin, lineSeq, defs[0].args, width)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "px: %v\n", err)
-				os.Exit(1)
-			}
-		} else {
-			lines = slices.Collect(lineSeq)
-			for _, d := range defs {
-				_, extSpans, err := runExtension(d.bin, slices.Values(lines), d.args, width)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "px: %v\n", err)
-					os.Exit(1)
-				}
-				spans = append(spans, extSpans...)
-			}
-			slices.SortFunc(spans, func(a, b Span) int {
-				if c := cmp.Compare(a.Line, b.Line); c != 0 {
-					return c
-				}
-				return cmp.Compare(a.Start, b.Start)
-			})
+		var err error
+		lines, spans, err = runExtensions(lineSeq, defs, width)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "px: %v\n", err)
+			os.Exit(1)
 		}
+		slices.SortFunc(spans, func(a, b Span) int {
+			if c := cmp.Compare(a.Line, b.Line); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.Start, b.Start)
+		})
 	} else {
 		lines = slices.Collect(lineSeq)
 		spans = findPaths(lines)

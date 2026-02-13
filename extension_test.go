@@ -206,7 +206,7 @@ awk '{
 	assert.NilError(t, err)
 
 	inputLines := []string{"say hello world", "no match here", "hello again"}
-	lines, spans, err := runExtension(bin, slices.Values(inputLines), nil, 0)
+	lines, spans, err := runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 0)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, lines, inputLines)
 	assert.DeepEqual(t, spans, []Span{
@@ -235,14 +235,14 @@ fi
 	inputLines := []string{"hello world"}
 
 	t.Run("width zero omits PX_WIDTH", func(t *testing.T) {
-		_, spans, err := runExtension(bin, slices.Values(inputLines), nil, 0)
+		_, spans, err := runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 0)
 		assert.NilError(t, err)
 		var noSpans []Span
 		assert.DeepEqual(t, spans, noSpans)
 	})
 
 	t.Run("width set exports PX_WIDTH", func(t *testing.T) {
-		_, spans, err := runExtension(bin, slices.Values(inputLines), nil, 80)
+		_, spans, err := runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 80)
 		assert.NilError(t, err)
 		assert.DeepEqual(t, spans, []Span{
 			{Line: 0, Start: 0, End: 5, Text: "hello"},
@@ -266,6 +266,6 @@ exit 1
 	assert.NilError(t, err)
 
 	inputLines := []string{"hello"}
-	_, _, err = runExtension(bin, slices.Values(inputLines), nil, 0)
+	_, _, err = runExtensions(slices.Values(inputLines), []extDef{{bin, nil}}, 0)
 	assert.Error(t, err, "extension failed: exit status 1")
 }
