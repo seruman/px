@@ -77,12 +77,12 @@ func unwrap(lines iter.Seq[string], width int) iter.Seq[string] {
 func findPaths(lines []string) []Span {
 	var spans []Span
 	for i, line := range lines {
-		spans = append(spans, tokenizeLine(i, line)...)
+		spans = append(spans, matchPaths(i, line)...)
 	}
 	return spans
 }
 
-func tokenizeLine(lineIdx int, line string) []Span {
+func matchPaths(lineIdx int, line string) []Span {
 	var spans []Span
 	off := 0
 	for off < len(line) {

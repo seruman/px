@@ -9,7 +9,7 @@ import (
 type MatchFunc func(lineIdx int, line string) []Span
 
 var builtinMatchers = map[string]MatchFunc{
-	"paths": tokenizeLine,
+	"paths": matchPaths,
 	"url":   matchURLs,
 	"ip":    matchIPs,
 	"sha":   matchSHAs,
