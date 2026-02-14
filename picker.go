@@ -15,7 +15,7 @@ import (
 var errNoMatches = errors.New("no matches found in input")
 
 type Picker struct {
-	lines   []string
+	lines   []styledLine
 	spans   []Span
 	unique  []string
 	pathIdx map[string]int
@@ -42,7 +42,7 @@ func newPicker() *Picker {
 	}
 }
 
-func (p *Picker) appendData(lines []string, spans []Span) {
+func (p *Picker) appendData(lines []styledLine, spans []Span) {
 	var curSpan Span
 	if len(p.spans) > 0 {
 		curSpan = p.spans[p.cursor]
@@ -503,8 +503,15 @@ func (p *Picker) spanStyle(text string, isCursor bool, cursorText string) vaxis.
 }
 
 func (p *Picker) drawLine(win vaxis.Window, row, lineIdx int, curSpan Span) {
-	line := p.lines[lineIdx]
+	sl := p.lines[lineIdx]
+	if sl.cells != nil {
+		p.drawStyledLine(win, row, sl, lineIdx, curSpan)
+		return
+	}
+	p.drawPlainLine(win, row, sl.text, lineIdx, curSpan)
+}
 
+func (p *Picker) drawPlainLine(win vaxis.Window, row int, line string, lineIdx int, curSpan Span) {
 	type indexedSpan struct {
 		span Span
 		idx  int // index in p.spans
@@ -548,6 +555,96 @@ func (p *Picker) drawLine(win vaxis.Window, row, lineIdx int, curSpan Span) {
 	}
 
 	win.Println(row, segs...)
+}
+
+func (p *Picker) drawStyledLine(win vaxis.Window, row int, sl styledLine, lineIdx int, curSpan Span) {
+	type indexedSpan struct {
+		span Span
+		idx  int
+	}
+
+	var lineSpans []indexedSpan
+	start := sort.Search(len(p.spans), func(i int) bool {
+		return p.spans[i].Line >= lineIdx
+	})
+	for i := start; i < len(p.spans) && p.spans[i].Line == lineIdx; i++ {
+		lineSpans = append(lineSpans, indexedSpan{span: p.spans[i], idx: i})
+	}
+
+	var searchMatches [][2]int
+	if p.searchRe != nil {
+		for _, m := range p.searchRe.FindAllStringIndex(sl.text, -1) {
+			searchMatches = append(searchMatches, [2]int{m[0], m[1]})
+		}
+	}
+
+	var segs []vaxis.Segment
+	byteOff := 0
+	si := 0
+
+	for _, cell := range sl.cells {
+		graphLen := len(cell.Grapheme)
+
+		for si < len(lineSpans) && lineSpans[si].span.End <= byteOff {
+			si++
+		}
+
+		style := cell.Style
+		inSpan := si < len(lineSpans) && byteOff >= lineSpans[si].span.Start && byteOff < lineSpans[si].span.End
+
+		if inSpan {
+			is := lineSpans[si]
+			s := is.span
+			isCursor := s.Line == curSpan.Line && s.Start == curSpan.Start
+			style = p.mergeSpanStyle(cell.Style, s.Text, isCursor, curSpan.Text)
+
+			if p.searchRe != nil && p.isSearchHit(is.idx) {
+				for _, m := range searchMatches {
+					if byteOff >= m[0] && byteOff < m[1] {
+						style.Foreground = styleSearchMatch.Foreground
+						style.Background = styleSearchMatch.Background
+						if isCursor {
+							style.Attribute = 0
+						}
+						break
+					}
+				}
+			}
+		}
+
+		if len(segs) > 0 && segs[len(segs)-1].Style == style {
+			segs[len(segs)-1].Text += cell.Grapheme
+		} else {
+			segs = append(segs, vaxis.Segment{Text: cell.Grapheme, Style: style})
+		}
+
+		byteOff += graphLen
+	}
+
+	win.Println(row, segs...)
+}
+
+func (p *Picker) mergeSpanStyle(base vaxis.Style, text string, isCursor bool, cursorText string) vaxis.Style {
+	idx := p.pathIdx[text]
+	selected := p.sel[idx]
+
+	s := base
+	switch {
+	case isCursor && selected:
+		s.Foreground = vaxis.IndexColor(2)
+		s.Attribute |= vaxis.AttrReverse
+	case isCursor:
+		s.Attribute |= vaxis.AttrReverse
+	case selected:
+		s.Foreground = vaxis.IndexColor(2)
+		s.UnderlineStyle = vaxis.UnderlineSingle
+	case text == cursorText:
+		s.Foreground = vaxis.IndexColor(4)
+		s.UnderlineStyle = vaxis.UnderlineSingle
+	default:
+		s.UnderlineStyle = vaxis.UnderlineSingle
+	}
+	return s
 }
 
 func (p *Picker) drawStatus(win vaxis.Window) {

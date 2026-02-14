@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"git.sr.ht/~rockorager/vaxis"
 )
 
 func shellSplit(s string) ([]string, error) {
@@ -123,8 +126,68 @@ type resolvedMatcher struct {
 	ext     *extDef
 }
 
+type styledLine struct {
+	text  string       // ANSI-stripped clean text
+	cells []vaxis.Cell // styled cells (nil when input has no ANSI)
+}
+
+func newStyledLine(raw string) styledLine {
+	if !strings.Contains(raw, "\x1b") {
+		return styledLine{text: raw}
+	}
+	// ParseStyledString treats tabs as control characters and drops them.
+	// Expand tabs to spaces at 8-column tab stops before parsing.
+	sanitized := expandTabsANSI(raw)
+	cells := vaxis.ParseStyledString(sanitized)
+	var b strings.Builder
+	for _, c := range cells {
+		b.WriteString(c.Grapheme)
+	}
+	return styledLine{text: b.String(), cells: cells}
+}
+
+// expandTabsANSI expands tab characters to spaces at 8-column tab stops,
+// skipping ANSI escape sequences when counting column positions.
+func expandTabsANSI(s string) string {
+	if !strings.Contains(s, "\t") {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			// CSI sequence: skip parameter (0x30-0x3F) and intermediate
+			// (0x20-0x2F) bytes, then consume the final byte (0x40-0x7E).
+			// Control characters (< 0x20) are not part of the sequence.
+			j := i + 2
+			for j < len(s) && s[j] >= 0x20 && (s[j] < 0x40 || s[j] > 0x7E) {
+				j++
+			}
+			if j < len(s) && s[j] >= 0x40 && s[j] <= 0x7E {
+				j++ // include final byte
+			}
+			b.WriteString(s[i:j])
+			i = j
+			continue
+		}
+		if s[i] == '\t' {
+			spaces := 8 - (col % 8)
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+			i++
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		b.WriteString(s[i : i+size])
+		col++
+		i += size
+	}
+	return b.String()
+}
+
 type newDataEvent struct {
-	lines []string
+	lines []styledLine
 	spans []Span
 }
 
@@ -215,7 +278,7 @@ func startMatchers(
 		}
 
 		var lines []string
-		var batchLines []string
+		var batchLines []styledLine
 		var batchSpans []Span
 		lastFlush := time.Now()
 
@@ -234,18 +297,19 @@ func startMatchers(
 				break
 			}
 
+			sl := newStyledLine(line)
 			lineIdx := len(lines)
-			lines = append(lines, line)
-			batchLines = append(batchLines, line)
+			lines = append(lines, sl.text)
+			batchLines = append(batchLines, sl)
 
 			for _, m := range matchers {
 				if m.builtin != nil {
-					batchSpans = append(batchSpans, m.builtin(lineIdx, line)...)
+					batchSpans = append(batchSpans, m.builtin(lineIdx, sl.text)...)
 				}
 			}
 
 			for _, p := range procs {
-				fmt.Fprintln(p.stdin, line)
+				fmt.Fprintln(p.stdin, sl.text)
 			}
 
 			if len(batchLines) >= batchSize || time.Since(lastFlush) >= flushInterval {

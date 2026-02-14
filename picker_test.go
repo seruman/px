@@ -9,6 +9,14 @@ import (
 	"gotest.tools/v3/assert"
 )
 
+func plainLines(ss []string) []styledLine {
+	sls := make([]styledLine, len(ss))
+	for i, s := range ss {
+		sls[i] = styledLine{text: s}
+	}
+	return sls
+}
+
 func TestPickerNavigation(t *testing.T) {
 	lines := []string{
 		"error in ./src/main.go",
@@ -16,7 +24,7 @@ func TestPickerNavigation(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -47,7 +55,7 @@ func TestPickerToggleSelection(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -68,7 +76,7 @@ func TestPickerSelectedDefault(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 
 	got := p.selected()
@@ -82,7 +90,7 @@ func TestPickerSelectedExplicit(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 
 	p.toggleCurrent()
@@ -100,7 +108,7 @@ func TestPickerDuplicatePaths(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 
 	assert.Equal(t, len(p.unique), 1)
@@ -121,7 +129,7 @@ func TestPickerHandleKey(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -187,7 +195,7 @@ func TestPickerPageMovement(t *testing.T) {
 	}
 	spans := findPaths(lineStrs)
 	p := newPicker()
-	p.appendData(lineStrs, spans)
+	p.appendData(plainLines(lineStrs), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 11 // contentRows = 10
@@ -248,7 +256,7 @@ func TestPickerGGAborted(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -274,7 +282,7 @@ func TestPickerEnsureVisible(t *testing.T) {
 	}
 	spans := findPaths(lineStrs)
 	p := newPicker()
-	p.appendData(lineStrs, spans)
+	p.appendData(plainLines(lineStrs), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 5
@@ -297,7 +305,7 @@ func TestPickerSpanStyle(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 
 	// Cursor on first span (src/main.go at position 0).
@@ -337,7 +345,7 @@ func TestPickerStatusLine(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 5
@@ -354,7 +362,7 @@ func TestPickerSearch(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -399,7 +407,7 @@ func TestPickerSearchNext(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -435,7 +443,7 @@ func TestPickerSearchPrev(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -472,7 +480,7 @@ func TestPickerSearchCancel(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -504,7 +512,7 @@ func TestPickerSearchRegex(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -527,7 +535,7 @@ func TestPickerSearchNoMatch(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -551,7 +559,7 @@ func TestPickerSearchInvalidRegex(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -641,7 +649,7 @@ func TestPickerSearchClearWithEscape(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
@@ -671,7 +679,7 @@ func TestPickerSearchBackspace(t *testing.T) {
 	}
 	spans := findPaths(lines)
 	p := newPicker()
-	p.appendData(lines, spans)
+	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 	p.cols = 80
 	p.rows = 10

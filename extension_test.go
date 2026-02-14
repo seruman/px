@@ -200,7 +200,9 @@ func collectMatchers(t *testing.T, lineSeq iter.Seq[string], matchers []resolved
 	for ev := range events {
 		switch e := ev.(type) {
 		case newDataEvent:
-			lines = append(lines, e.lines...)
+			for _, sl := range e.lines {
+				lines = append(lines, sl.text)
+			}
 			spans = append(spans, e.spans...)
 		case inputDoneEvent:
 			return lines, spans, nil
@@ -339,4 +341,99 @@ awk '{
 		{Line: 0, Start: 6, End: 25, Text: "https://example.com"},
 		{Line: 0, Start: 0, End: 5, Text: "hello"},
 	})
+}
+
+func TestStartMatchersANSI(t *testing.T) {
+	inputLines := []string{
+		"\x1b[33mbc1d9e7\x1b[m remove runMatchers",
+		"\x1b[33m0e585a9\x1b[m stream lines",
+	}
+	lines, spans, err := collectMatchers(t, slices.Values(inputLines), []resolvedMatcher{
+		{name: "sha", builtin: matchSHAs},
+	}, 0)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, lines, []string{
+		"bc1d9e7 remove runMatchers",
+		"0e585a9 stream lines",
+	})
+	assert.DeepEqual(t, spans, []Span{
+		{Line: 0, Start: 0, End: 7, Text: "bc1d9e7"},
+		{Line: 1, Start: 0, End: 7, Text: "0e585a9"},
+	})
+}
+
+func TestStartMatchersANSITabs(t *testing.T) {
+	inputLines := []string{
+		"\x1b[32m+\tfmt.Println(\"hello\")\x1b[m",
+	}
+	lines, _, err := collectMatchers(t, slices.Values(inputLines), []resolvedMatcher{
+		{name: "paths", builtin: matchPaths},
+	}, 0)
+	assert.NilError(t, err)
+	// Tab after "+" (column 1) expands to 7 spaces (next tab stop at column 8).
+	assert.DeepEqual(t, lines, []string{
+		"+       fmt.Println(\"hello\")",
+	})
+}
+
+func TestNewStyledLinePreservesTabs(t *testing.T) {
+	sl := newStyledLine("\x1b[32m+\tcode\x1b[m")
+	assert.Equal(t, sl.text, "+       code")
+	assert.Assert(t, sl.cells != nil)
+
+	// Without ANSI, tabs pass through as-is.
+	sl = newStyledLine("+\tcode")
+	assert.Equal(t, sl.text, "+\tcode")
+	assert.Assert(t, sl.cells == nil)
+}
+
+func TestExpandTabsANSI(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "no tabs",
+			input: "\x1b[32m+hello\x1b[m",
+			want:  "\x1b[32m+hello\x1b[m",
+		},
+		{
+			name:  "tab at column 0",
+			input: "\x1b[32m\tfoo\x1b[m",
+			want:  "\x1b[32m        foo\x1b[m",
+		},
+		{
+			name:  "tab after one char",
+			input: "\x1b[32m+\tfoo\x1b[m",
+			want:  "\x1b[32m+       foo\x1b[m",
+		},
+		{
+			name:  "two tabs",
+			input: "\x1b[32m\t\tfoo\x1b[m",
+			want:  "\x1b[32m                foo\x1b[m",
+		},
+		{
+			name:  "tab without ANSI passthrough",
+			input: "no-escape",
+			want:  "no-escape",
+		},
+		{
+			name:  "truncated CSI before tab",
+			input: "\x1b[\t",
+			want:  "\x1b[        ",
+		},
+		{
+			name:  "multi-byte char before tab",
+			input: "\x1b[32mhé\tfoo\x1b[m",
+			want:  "\x1b[32mhé      foo\x1b[m",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := expandTabsANSI(tt.input)
+			assert.Equal(t, got, tt.want)
+		})
+	}
 }
