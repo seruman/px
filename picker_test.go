@@ -15,7 +15,9 @@ func TestPickerNavigation(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -44,7 +46,9 @@ func TestPickerToggleSelection(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -63,7 +67,9 @@ func TestPickerSelectedDefault(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 
 	got := p.selected()
 	assert.DeepEqual(t, got, []string{"./src/main.go"})
@@ -75,7 +81,9 @@ func TestPickerSelectedExplicit(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 
 	p.toggleCurrent()
 	p.moveDown()
@@ -91,7 +99,9 @@ func TestPickerDuplicatePaths(t *testing.T) {
 		"src/main.go again",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 
 	assert.Equal(t, len(p.unique), 1)
 	assert.Equal(t, p.unique[0], "src/main.go")
@@ -110,7 +120,9 @@ func TestPickerHandleKey(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -174,7 +186,9 @@ func TestPickerPageMovement(t *testing.T) {
 		lineStrs = append(lineStrs, "path/"+strings.Repeat("x", i)+"/file.go")
 	}
 	spans := findPaths(lineStrs)
-	p := newPicker(lineStrs, spans)
+	p := newPicker()
+	p.appendData(lineStrs, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 11 // contentRows = 10
 
@@ -233,7 +247,9 @@ func TestPickerGGAborted(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -257,7 +273,9 @@ func TestPickerEnsureVisible(t *testing.T) {
 		lineStrs = append(lineStrs, "path/"+strings.Repeat("x", i)+"/file.go")
 	}
 	spans := findPaths(lineStrs)
-	p := newPicker(lineStrs, spans)
+	p := newPicker()
+	p.appendData(lineStrs, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 5
 
@@ -278,7 +296,9 @@ func TestPickerSpanStyle(t *testing.T) {
 		"other/file.go",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 
 	// Cursor on first span (src/main.go at position 0).
 	cursorText := p.spans[p.cursor].Text
@@ -316,7 +336,9 @@ func TestPickerStatusLine(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 5
 
@@ -331,7 +353,9 @@ func TestPickerSearch(t *testing.T) {
 		"and ./src/main_test.go",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -374,7 +398,9 @@ func TestPickerSearchNext(t *testing.T) {
 		"also ./src/main_util.go",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -408,7 +434,9 @@ func TestPickerSearchPrev(t *testing.T) {
 		"also ./src/main_util.go",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -443,7 +471,9 @@ func TestPickerSearchCancel(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -473,7 +503,9 @@ func TestPickerSearchRegex(t *testing.T) {
 		"and ./src/main_test.go",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -494,7 +526,9 @@ func TestPickerSearchNoMatch(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -516,7 +550,9 @@ func TestPickerSearchInvalidRegex(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -604,7 +640,9 @@ func TestPickerSearchClearWithEscape(t *testing.T) {
 		"see also /tmp/log.txt",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 
@@ -632,7 +670,9 @@ func TestPickerSearchBackspace(t *testing.T) {
 		"and ./src/main_test.go",
 	}
 	spans := findPaths(lines)
-	p := newPicker(lines, spans)
+	p := newPicker()
+	p.appendData(lines, spans)
+	p.inputDone = true
 	p.cols = 80
 	p.rows = 10
 

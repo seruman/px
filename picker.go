@@ -1,13 +1,18 @@
 package main
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"unicode/utf8"
 
 	"git.sr.ht/~rockorager/vaxis"
 )
+
+var errNoMatches = errors.New("no matches found in input")
 
 type Picker struct {
 	lines   []string
@@ -16,11 +21,12 @@ type Picker struct {
 	pathIdx map[string]int
 	sel     map[int]bool
 
-	cursor   int
-	viewTop  int
-	cols     int
-	rows     int
-	pendingG bool // waiting for second 'g' in gg sequence
+	cursor    int
+	viewTop   int
+	cols      int
+	rows      int
+	pendingG  bool // waiting for second 'g' in gg sequence
+	inputDone bool // all input has been read
 
 	searching  bool           // in search input mode
 	searchBuf  string         // current search input text
@@ -29,23 +35,54 @@ type Picker struct {
 	searchPos  int            // current position in searchHits for n/N cycling
 }
 
-func newPicker(lines []string, spans []Span) *Picker {
-	p := &Picker{
-		lines:   lines,
-		spans:   spans,
+func newPicker() *Picker {
+	return &Picker{
 		pathIdx: make(map[string]int),
 		sel:     make(map[int]bool),
 	}
+}
+
+func (p *Picker) appendData(lines []string, spans []Span) {
+	var curSpan Span
+	if len(p.spans) > 0 {
+		curSpan = p.spans[p.cursor]
+	}
+
+	p.lines = append(p.lines, lines...)
+	p.spans = append(p.spans, spans...)
+
+	slices.SortFunc(p.spans, func(a, b Span) int {
+		if c := cmp.Compare(a.Line, b.Line); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Start, b.Start)
+	})
+
 	for _, s := range spans {
 		if _, ok := p.pathIdx[s.Text]; !ok {
 			p.pathIdx[s.Text] = len(p.unique)
 			p.unique = append(p.unique, s.Text)
 		}
 	}
-	return p
+
+	if curSpan != (Span{}) {
+		for i, s := range p.spans {
+			if s.Line == curSpan.Line && s.Start == curSpan.Start {
+				p.cursor = i
+				break
+			}
+		}
+	}
+
+	if p.searchRe != nil {
+		p.updateSearchHits()
+	}
 }
 
 func (p *Picker) ensureVisible() {
+	if len(p.spans) == 0 {
+		return
+	}
 	line := p.spans[p.cursor].Line
 	contentRows := p.rows - 1
 	if line < p.viewTop {
@@ -101,11 +138,17 @@ func (p *Picker) moveFirst() {
 }
 
 func (p *Picker) moveLast() {
+	if len(p.spans) == 0 {
+		return
+	}
 	p.cursor = len(p.spans) - 1
 	p.ensureVisible()
 }
 
 func (p *Picker) moveBy(n int) {
+	if len(p.spans) == 0 {
+		return
+	}
 	p.cursor += n
 	if p.cursor < 0 {
 		p.cursor = 0
@@ -249,7 +292,7 @@ func appendSearchHighlight(segs []vaxis.Segment, text string, baseStyle, matchSt
 }
 
 // Returns nil if cancelled.
-func (p *Picker) run() ([]string, error) {
+func (p *Picker) run(onStart func(postEvent func(any))) ([]string, error) {
 	vx, err := vaxis.New(vaxis.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("init terminal: %w", err)
@@ -263,7 +306,7 @@ func (p *Picker) run() ([]string, error) {
 		return nil, fmt.Errorf("terminal too small (need at least 3 rows, got %d)", p.rows)
 	}
 
-	p.ensureVisible()
+	onStart(func(ev any) { vx.PostEvent(ev) })
 	p.draw(vx)
 
 	for ev := range vx.Events() {
@@ -280,6 +323,15 @@ func (p *Picker) run() ([]string, error) {
 			win = vx.Window()
 			p.cols, p.rows = win.Size()
 			p.ensureVisible()
+		case newDataEvent:
+			p.appendData(ev.lines, ev.spans)
+		case inputDoneEvent:
+			p.inputDone = true
+			if len(p.spans) == 0 {
+				return nil, errNoMatches
+			}
+		case inputErrorEvent:
+			return nil, ev.err
 		}
 		p.draw(vx)
 	}
@@ -303,11 +355,15 @@ func (p *Picker) handleKey(key vaxis.Key) inputAction {
 	if p.pendingG {
 		p.pendingG = false
 		if key.Matches('g') {
+			if len(p.spans) == 0 {
+				return actionNone
+			}
 			p.moveFirst()
 			return actionRedraw
 		}
 	}
 
+	// Actions that don't require spans.
 	switch {
 	case key.Matches(vaxis.KeyEsc):
 		if p.searchRe != nil {
@@ -320,6 +376,17 @@ func (p *Picker) handleKey(key vaxis.Key) inputAction {
 		key.Matches('c', vaxis.ModCtrl), key.Matches('C', vaxis.ModCtrl):
 		return actionCancel
 
+	case key.Matches('/'):
+		p.searching = true
+		p.searchBuf = ""
+		return actionRedraw
+	}
+
+	if len(p.spans) == 0 {
+		return actionNone
+	}
+
+	switch {
 	case key.Matches(vaxis.KeyEnter):
 		return actionConfirm
 
@@ -360,11 +427,6 @@ func (p *Picker) handleKey(key vaxis.Key) inputAction {
 		p.pendingG = true
 		return actionNone
 
-	case key.Matches('/'):
-		p.searching = true
-		p.searchBuf = ""
-		return actionRedraw
-
 	case key.Matches('n'):
 		p.searchNext()
 		return actionRedraw
@@ -383,7 +445,10 @@ func (p *Picker) draw(vx *vaxis.Vaxis) {
 	win.Clear()
 
 	contentRows := p.rows - 1
-	curSpan := p.spans[p.cursor]
+	var curSpan Span
+	if len(p.spans) > 0 {
+		curSpan = p.spans[p.cursor]
+	}
 
 	for row := range contentRows {
 		lineIdx := p.viewTop + row
@@ -446,13 +511,11 @@ func (p *Picker) drawLine(win vaxis.Window, row, lineIdx int, curSpan Span) {
 	}
 
 	var lineSpans []indexedSpan
-	for i, s := range p.spans {
-		if s.Line == lineIdx {
-			lineSpans = append(lineSpans, indexedSpan{span: s, idx: i})
-		}
-		if s.Line > lineIdx {
-			break
-		}
+	start := sort.Search(len(p.spans), func(i int) bool {
+		return p.spans[i].Line >= lineIdx
+	})
+	for i := start; i < len(p.spans) && p.spans[i].Line == lineIdx; i++ {
+		lineSpans = append(lineSpans, indexedSpan{span: p.spans[i], idx: i})
 	}
 
 	var segs []vaxis.Segment
@@ -498,6 +561,13 @@ func (p *Picker) drawStatus(win vaxis.Window) {
 func (p *Picker) statusLine() string {
 	if p.searching {
 		return fmt.Sprintf(" /%s_", p.searchBuf)
+	}
+
+	if !p.inputDone {
+		if len(p.spans) == 0 {
+			return " Reading input..."
+		}
+		return fmt.Sprintf(" Reading... %d matches so far", len(p.spans))
 	}
 
 	status := fmt.Sprintf(" %d/%d matches | %d selected | Tab:select  Enter:confirm  Esc/q:cancel",

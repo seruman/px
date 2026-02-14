@@ -1,12 +1,11 @@
 package main
 
 import (
-	"cmp"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -106,26 +105,21 @@ func main() {
 		}
 	}
 
-	lines, spans, err := runMatchers(lineSeq, matchers, width)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "px: %v\n", err)
-		os.Exit(1)
-	}
-	slices.SortFunc(spans, func(a, b Span) int {
-		if c := cmp.Compare(a.Line, b.Line); c != 0 {
-			return c
+	p := newPicker()
+	var cancel func()
+	defer func() {
+		if cancel != nil {
+			cancel()
 		}
-		return cmp.Compare(a.Start, b.Start)
+	}()
+	selected, err := p.run(func(postEvent func(any)) {
+		cancel = startMatchers(lineSeq, matchers, width, postEvent)
 	})
-
-	if len(spans) == 0 {
-		fmt.Fprintf(os.Stderr, "px: no matches found in input\n")
-		os.Exit(0)
-	}
-
-	p := newPicker(lines, spans)
-	selected, err := p.run()
 	if err != nil {
+		if errors.Is(err, errNoMatches) {
+			fmt.Fprintf(os.Stderr, "px: %v\n", err)
+			os.Exit(0)
+		}
 		fmt.Fprintf(os.Stderr, "px: %v\n", err)
 		os.Exit(1)
 	}

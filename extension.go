@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 func shellSplit(s string) ([]string, error) {
@@ -192,4 +194,183 @@ func runMatchers(lineSeq iter.Seq[string], matchers []resolvedMatcher, width int
 	}
 
 	return lines, spans, nil
+}
+
+type newDataEvent struct {
+	lines []string
+	spans []Span
+}
+
+type inputDoneEvent struct{}
+
+type inputErrorEvent struct {
+	err error
+}
+
+func startMatchers(
+	lineSeq iter.Seq[string],
+	matchers []resolvedMatcher,
+	width int,
+	postEvent func(any),
+) (cancel func()) {
+	done := make(chan struct{})
+	cancel = sync.OnceFunc(func() { close(done) })
+
+	type proc struct {
+		cmd   *exec.Cmd
+		stdin io.WriteCloser
+	}
+
+	var procs []*proc
+	extSpansCh := make(chan string, 256)
+	var readersWg sync.WaitGroup
+
+	setupFailed := func(err error) func() {
+		for _, p := range procs {
+			p.stdin.Close()
+		}
+		postEvent(inputErrorEvent{err: err})
+		return cancel
+	}
+
+	for _, m := range matchers {
+		if m.ext == nil {
+			continue
+		}
+		cmd := exec.Command(m.ext.bin, m.ext.args...)
+		cmd.Stderr = os.Stderr
+		if width > 0 {
+			cmd.Env = append(os.Environ(), fmt.Sprintf("PX_WIDTH=%d", width))
+		}
+
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			return setupFailed(fmt.Errorf("stdin pipe for %s: %w", m.ext.bin, err))
+		}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return setupFailed(fmt.Errorf("stdout pipe for %s: %w", m.ext.bin, err))
+		}
+
+		if err := cmd.Start(); err != nil {
+			return setupFailed(fmt.Errorf("start %s: %w", m.ext.bin, err))
+		}
+
+		procs = append(procs, &proc{cmd: cmd, stdin: stdin})
+
+		readersWg.Add(1)
+		go func(r io.Reader) {
+			defer readersWg.Done()
+			scanner := bufio.NewScanner(r)
+			for scanner.Scan() {
+				extSpansCh <- scanner.Text()
+			}
+		}(stdout)
+	}
+
+	go func() {
+		readersWg.Wait()
+		close(extSpansCh)
+	}()
+
+	go func() {
+		const batchSize = 100
+		const flushInterval = 50 * time.Millisecond
+
+		cancelled := func() bool {
+			select {
+			case <-done:
+				return true
+			default:
+				return false
+			}
+		}
+
+		var lines []string
+		var batchLines []string
+		var batchSpans []Span
+		lastFlush := time.Now()
+
+		flush := func() {
+			if len(batchLines) == 0 && len(batchSpans) == 0 {
+				return
+			}
+			postEvent(newDataEvent{lines: batchLines, spans: batchSpans})
+			batchLines = nil
+			batchSpans = nil
+			lastFlush = time.Now()
+		}
+
+		for line := range lineSeq {
+			if cancelled() {
+				break
+			}
+
+			lineIdx := len(lines)
+			lines = append(lines, line)
+			batchLines = append(batchLines, line)
+
+			for _, m := range matchers {
+				if m.builtin != nil {
+					batchSpans = append(batchSpans, m.builtin(lineIdx, line)...)
+				}
+			}
+
+			for _, p := range procs {
+				fmt.Fprintln(p.stdin, line)
+			}
+
+			if len(batchLines) >= batchSize || time.Since(lastFlush) >= flushInterval {
+				flush()
+			}
+		}
+
+		if !cancelled() {
+			flush()
+		}
+
+		for _, p := range procs {
+			p.stdin.Close()
+		}
+
+		var extLines []string
+		for raw := range extSpansCh {
+			extLines = append(extLines, raw)
+		}
+
+		for _, p := range procs {
+			if err := p.cmd.Wait(); err != nil {
+				if !cancelled() {
+					postEvent(inputErrorEvent{err: fmt.Errorf("extension failed: %w", err)})
+				}
+				return
+			}
+		}
+
+		if cancelled() {
+			return
+		}
+
+		var extSpans []Span
+		for _, raw := range extLines {
+			if raw == "" {
+				continue
+			}
+			span, err := parseSpanLine(raw, lines)
+			if err != nil {
+				postEvent(inputErrorEvent{err: fmt.Errorf("parse extension output: %w", err)})
+				return
+			}
+			extSpans = append(extSpans, span)
+		}
+
+		if len(extSpans) > 0 {
+			postEvent(newDataEvent{spans: extSpans})
+		}
+
+		postEvent(inputDoneEvent{})
+	}()
+
+	return cancel
 }
