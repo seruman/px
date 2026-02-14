@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -89,7 +90,21 @@ func main() {
 			os.Exit(1)
 		}
 		name := words[0]
-		if bin, lookErr := exec.LookPath("px-" + name); lookErr == nil {
+		if name == "regex" {
+			if len(words) != 2 {
+				fmt.Fprintf(os.Stderr, "px: regex matcher requires exactly one pattern argument\n")
+				os.Exit(1)
+			}
+			re, err := regexp.Compile(words[1])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "px: invalid regex %q: %v\n", words[1], err)
+				os.Exit(1)
+			}
+			matchers = append(matchers, resolvedMatcher{
+				name:    name,
+				builtin: matchRegex(re),
+			})
+		} else if bin, lookErr := exec.LookPath("px-" + name); lookErr == nil {
 			matchers = append(matchers, resolvedMatcher{
 				name: name,
 				ext:  &extDef{bin, words[1:]},

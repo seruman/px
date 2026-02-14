@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"testing"
 
 	"gotest.tools/v3/assert"
@@ -290,6 +291,63 @@ func TestMatchEmails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := matchEmails(0, tt.line)
+			assert.DeepEqual(t, got, tt.want)
+		})
+	}
+}
+
+func TestMatchRegex(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		line    string
+		want    []Span
+	}{
+		{
+			name:    "simple word",
+			pattern: `\berror\b`,
+			line:    "an error occurred",
+			want: []Span{
+				{Line: 0, Start: 3, End: 8, Text: "error"},
+			},
+		},
+		{
+			name:    "capture digits",
+			pattern: `\d{3,}`,
+			line:    "code 404 and 12345",
+			want: []Span{
+				{Line: 0, Start: 5, End: 8, Text: "404"},
+				{Line: 0, Start: 13, End: 18, Text: "12345"},
+			},
+		},
+		{
+			name:    "no match",
+			pattern: `zzz`,
+			line:    "hello world",
+			want:    nil,
+		},
+		{
+			name:    "empty line",
+			pattern: `foo`,
+			line:    "",
+			want:    nil,
+		},
+		{
+			name:    "multiple on same spot",
+			pattern: `[a-z]+`,
+			line:    "foo bar",
+			want: []Span{
+				{Line: 0, Start: 0, End: 3, Text: "foo"},
+				{Line: 0, Start: 4, End: 7, Text: "bar"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(tt.pattern)
+			fn := matchRegex(re)
+			got := fn(0, tt.line)
 			assert.DeepEqual(t, got, tt.want)
 		})
 	}

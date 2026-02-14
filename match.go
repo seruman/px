@@ -158,3 +158,18 @@ func matchEmails(lineIdx int, line string) []Span {
 	}
 	return spans
 }
+
+func matchRegex(re *regexp.Regexp) MatchFunc {
+	return func(lineIdx int, line string) []Span {
+		var spans []Span
+		for _, loc := range re.FindAllStringIndex(line, -1) {
+			spans = append(spans, Span{
+				Line:  lineIdx,
+				Start: loc[0],
+				End:   loc[1],
+				Text:  line[loc[0]:loc[1]],
+			})
+		}
+		return spans
+	}
+}
