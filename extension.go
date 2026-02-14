@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"io"
 	"iter"
@@ -122,78 +121,6 @@ type resolvedMatcher struct {
 	name    string
 	builtin MatchFunc
 	ext     *extDef
-}
-
-func runMatchers(lineSeq iter.Seq[string], matchers []resolvedMatcher, width int) ([]string, []Span, error) {
-	type proc struct {
-		cmd   *exec.Cmd
-		stdin io.WriteCloser
-		out   bytes.Buffer
-	}
-
-	var procs []*proc
-	for _, m := range matchers {
-		if m.ext == nil {
-			continue
-		}
-		cmd := exec.Command(m.ext.bin, m.ext.args...)
-		cmd.Stderr = os.Stderr
-		if width > 0 {
-			cmd.Env = append(os.Environ(), fmt.Sprintf("PX_WIDTH=%d", width))
-		}
-
-		stdin, err := cmd.StdinPipe()
-		if err != nil {
-			return nil, nil, fmt.Errorf("stdin pipe for %s: %w", m.ext.bin, err)
-		}
-
-		p := &proc{cmd: cmd, stdin: stdin}
-		cmd.Stdout = &p.out
-
-		if err := cmd.Start(); err != nil {
-			return nil, nil, fmt.Errorf("start %s: %w", m.ext.bin, err)
-		}
-		procs = append(procs, p)
-	}
-
-	var lines []string
-	var spans []Span
-	for line := range lineSeq {
-		lineIdx := len(lines)
-		lines = append(lines, line)
-		for _, m := range matchers {
-			if m.builtin != nil {
-				spans = append(spans, m.builtin(lineIdx, line)...)
-			}
-		}
-		for _, p := range procs {
-			fmt.Fprintln(p.stdin, line)
-		}
-	}
-	for _, p := range procs {
-		p.stdin.Close()
-	}
-
-	for _, p := range procs {
-		if err := p.cmd.Wait(); err != nil {
-			return nil, nil, fmt.Errorf("extension failed: %w", err)
-		}
-
-		scanner := bufio.NewScanner(&p.out)
-		for scanner.Scan() {
-			text := scanner.Text()
-			if text == "" {
-				continue
-			}
-			span, err := parseSpanLine(text, lines)
-			if err != nil {
-				return nil, nil, fmt.Errorf("parse extension output: %w", err)
-			}
-			spans = append(spans, span)
-		}
-	}
-
-	return lines, spans, nil
 }
 
 type newDataEvent struct {

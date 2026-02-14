@@ -1,6 +1,7 @@
 package main
 
 import (
+	"iter"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -186,7 +187,32 @@ func TestParseSpanLine(t *testing.T) {
 	}
 }
 
-func TestRunExtension(t *testing.T) {
+func collectMatchers(t *testing.T, lineSeq iter.Seq[string], matchers []resolvedMatcher, width int) ([]string, []Span, error) {
+	t.Helper()
+	events := make(chan any, 256)
+	cancel := startMatchers(lineSeq, matchers, width, func(ev any) {
+		events <- ev
+	})
+	defer cancel()
+
+	var lines []string
+	var spans []Span
+	for ev := range events {
+		switch e := ev.(type) {
+		case newDataEvent:
+			lines = append(lines, e.lines...)
+			spans = append(spans, e.spans...)
+		case inputDoneEvent:
+			return lines, spans, nil
+		case inputErrorEvent:
+			return lines, spans, e.err
+		}
+	}
+	t.Fatal("event channel closed without terminal event")
+	return nil, nil, nil
+}
+
+func TestStartMatchersExtension(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script test requires unix")
 	}
@@ -207,7 +233,7 @@ awk '{
 
 	inputLines := []string{"say hello world", "no match here", "hello again"}
 	ext := extDef{bin, nil}
-	lines, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+	lines, spans, err := collectMatchers(t, slices.Values(inputLines), []resolvedMatcher{
 		{name: "test", ext: &ext},
 	}, 0)
 	assert.NilError(t, err)
@@ -218,7 +244,7 @@ awk '{
 	})
 }
 
-func TestRunExtensionPXWidth(t *testing.T) {
+func TestStartMatchersPXWidth(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script test requires unix")
 	}
@@ -240,7 +266,7 @@ fi
 	ext := extDef{bin, nil}
 
 	t.Run("width zero omits PX_WIDTH", func(t *testing.T) {
-		_, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+		_, spans, err := collectMatchers(t, slices.Values(inputLines), []resolvedMatcher{
 			{name: "env", ext: &ext},
 		}, 0)
 		assert.NilError(t, err)
@@ -249,7 +275,7 @@ fi
 	})
 
 	t.Run("width set exports PX_WIDTH", func(t *testing.T) {
-		_, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+		_, spans, err := collectMatchers(t, slices.Values(inputLines), []resolvedMatcher{
 			{name: "env", ext: &ext},
 		}, 80)
 		assert.NilError(t, err)
@@ -259,7 +285,7 @@ fi
 	})
 }
 
-func TestRunExtensionFailure(t *testing.T) {
+func TestStartMatchersFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script test requires unix")
 	}
@@ -276,13 +302,13 @@ exit 1
 
 	inputLines := []string{"hello"}
 	ext := extDef{bin, nil}
-	_, _, err = runMatchers(slices.Values(inputLines), []resolvedMatcher{
+	_, _, err = collectMatchers(t, slices.Values(inputLines), []resolvedMatcher{
 		{name: "fail", ext: &ext},
 	}, 0)
 	assert.Error(t, err, "extension failed: exit status 1")
 }
 
-func TestRunMatchersMixed(t *testing.T) {
+func TestStartMatchersMixed(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell script test requires unix")
 	}
@@ -303,7 +329,7 @@ awk '{
 
 	inputLines := []string{"hello https://example.com"}
 	ext := extDef{bin, nil}
-	lines, spans, err := runMatchers(slices.Values(inputLines), []resolvedMatcher{
+	lines, spans, err := collectMatchers(t, slices.Values(inputLines), []resolvedMatcher{
 		{name: "url", builtin: matchURLs},
 		{name: "test", ext: &ext},
 	}, 0)
