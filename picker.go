@@ -22,6 +22,11 @@ type hintLabel struct {
 	label   string
 }
 
+type indexedSpan struct {
+	span Span
+	idx  int
+}
+
 func generateHintLabels(n int) []string {
 	if n <= 0 {
 		return nil
@@ -639,11 +644,6 @@ func (p *Picker) drawLine(win vaxis.Window, row, lineIdx int, curSpan Span) {
 }
 
 func (p *Picker) drawPlainLine(win vaxis.Window, row int, line string, lineIdx int, curSpan Span) {
-	type indexedSpan struct {
-		span Span
-		idx  int // index in p.spans
-	}
-
 	var lineSpans []indexedSpan
 	start := sort.Search(len(p.spans), func(i int) bool {
 		return p.spans[i].Line >= lineIdx
@@ -685,11 +685,6 @@ func (p *Picker) drawPlainLine(win vaxis.Window, row int, line string, lineIdx i
 }
 
 func (p *Picker) drawStyledLine(win vaxis.Window, row int, sl styledLine, lineIdx int, curSpan Span) {
-	type indexedSpan struct {
-		span Span
-		idx  int
-	}
-
 	var lineSpans []indexedSpan
 	start := sort.Search(len(p.spans), func(i int) bool {
 		return p.spans[i].Line >= lineIdx
@@ -754,11 +749,6 @@ func (p *Picker) drawStyledLine(win vaxis.Window, row int, sl styledLine, lineId
 func (p *Picker) drawHintLine(win vaxis.Window, row, lineIdx int) {
 	line := p.lines[lineIdx].text
 
-	type indexedSpan struct {
-		span Span
-		idx  int
-	}
-
 	var lineSpans []indexedSpan
 	start := sort.Search(len(p.spans), func(i int) bool {
 		return p.spans[i].Line >= lineIdx
@@ -806,7 +796,6 @@ func (p *Picker) drawHintLine(win vaxis.Window, row, lineIdx int) {
 			})
 		}
 
-		// Remaining label chars.
 		if typedLen < labelEnd {
 			segs = append(segs, vaxis.Segment{
 				Text:  string(labelRunes[typedLen:labelEnd]),
@@ -814,7 +803,6 @@ func (p *Picker) drawHintLine(win vaxis.Window, row, lineIdx int) {
 			})
 		}
 
-		// If span text is longer than label, show the rest dimmed.
 		spanRunes := []rune(spanText)
 		if len(labelRunes) < len(spanRunes) {
 			segs = append(segs, vaxis.Segment{

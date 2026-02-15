@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"git.sr.ht/~rockorager/vaxis"
+	"github.com/google/go-cmp/cmp"
 	"gotest.tools/v3/assert"
 )
 
@@ -742,9 +743,10 @@ func TestPickerHintModeEnterExit(t *testing.T) {
 	action := p.handleKey(vaxis.Key{Keycode: 'f'})
 	assert.Equal(t, action, actionRedraw)
 	assert.Equal(t, p.hinting, true)
-	assert.Equal(t, len(p.hintLabels), 2)
-	assert.Equal(t, p.hintLabels[0].label, "a")
-	assert.Equal(t, p.hintLabels[1].label, "s")
+	assert.DeepEqual(t, p.hintLabels, []hintLabel{
+		{spanIdx: 0, label: "a"},
+		{spanIdx: 1, label: "s"},
+	}, cmp.AllowUnexported(hintLabel{}))
 	assert.Equal(t, p.statusLine(), " HINTS: type a label to select")
 
 	action = p.handleKey(vaxis.Key{Keycode: vaxis.KeyEsc})
@@ -808,14 +810,13 @@ func TestPickerHintOnlyVisibleSpans(t *testing.T) {
 
 	p.handleKey(vaxis.Key{Keycode: 'f'})
 	assert.Equal(t, p.hinting, true)
-	assert.Equal(t, len(p.hintLabels), 5)
-
-	// All hint labels should reference spans within the viewport.
-	for _, hl := range p.hintLabels {
-		line := p.spans[hl.spanIdx].Line
-		assert.Assert(t, line >= p.viewTop && line < p.viewTop+5,
-			"span line %d outside viewport [%d, %d)", line, p.viewTop, p.viewTop+5)
-	}
+	assert.DeepEqual(t, p.hintLabels, []hintLabel{
+		{spanIdx: 0, label: "a"},
+		{spanIdx: 1, label: "s"},
+		{spanIdx: 2, label: "d"},
+		{spanIdx: 3, label: "f"},
+		{spanIdx: 4, label: "g"},
+	}, cmp.AllowUnexported(hintLabel{}))
 	p.exitHintMode()
 }
 
@@ -833,9 +834,23 @@ func TestPickerHintTwoChar(t *testing.T) {
 
 	p.handleKey(vaxis.Key{Keycode: 'f'})
 	assert.Equal(t, p.hinting, true)
-	assert.Equal(t, len(p.hintLabels), 15)
-	assert.Equal(t, p.hintLabels[0].label, "aa")
-	assert.Equal(t, p.hintLabels[1].label, "as")
+	assert.DeepEqual(t, p.hintLabels, []hintLabel{
+		{spanIdx: 0, label: "aa"},
+		{spanIdx: 1, label: "as"},
+		{spanIdx: 2, label: "ad"},
+		{spanIdx: 3, label: "af"},
+		{spanIdx: 4, label: "ag"},
+		{spanIdx: 5, label: "ah"},
+		{spanIdx: 6, label: "aj"},
+		{spanIdx: 7, label: "ak"},
+		{spanIdx: 8, label: "al"},
+		{spanIdx: 9, label: "a;"},
+		{spanIdx: 10, label: "a'"},
+		{spanIdx: 11, label: "sa"},
+		{spanIdx: 12, label: "ss"},
+		{spanIdx: 13, label: "sd"},
+		{spanIdx: 14, label: "sf"},
+	}, cmp.AllowUnexported(hintLabel{}))
 
 	// Type first char: should redraw (prefix matches exist).
 	action := p.handleKey(vaxis.Key{Keycode: 'a', Text: "a"})
@@ -853,11 +868,19 @@ func TestPickerHintTwoChar(t *testing.T) {
 }
 
 func TestPickerHintNoVisibleMatches(t *testing.T) {
-	// No spans at all.
+	var lineStrs []string
+	for i := range 20 {
+		lineStrs = append(lineStrs, fmt.Sprintf("path/%d/file.go", i))
+	}
+	spans := findPaths(lineStrs)
 	p := newPicker()
+	p.appendData(plainLines(lineStrs), spans)
 	p.inputDone = true
 	p.cols = 80
-	p.rows = 10
+	p.rows = 4 // contentRows = 3
+
+	// Scroll viewport past all spans.
+	p.viewTop = 20
 
 	action := p.handleKey(vaxis.Key{Keycode: 'f'})
 	assert.Equal(t, action, actionNone)
