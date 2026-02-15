@@ -7,12 +7,44 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"git.sr.ht/~rockorager/vaxis"
 )
 
 var errNoMatches = errors.New("no matches found in input")
+
+const hintAlphabet = "asdfghjkl;'"
+
+type hintLabel struct {
+	spanIdx int
+	label   string
+}
+
+func generateHintLabels(n int) []string {
+	if n <= 0 {
+		return nil
+	}
+	alpha := []rune(hintAlphabet)
+	if n <= len(alpha) {
+		labels := make([]string, n)
+		for i := range n {
+			labels[i] = string(alpha[i])
+		}
+		return labels
+	}
+	var labels []string
+	for _, a := range alpha {
+		for _, b := range alpha {
+			labels = append(labels, string([]rune{a, b}))
+			if len(labels) >= n {
+				return labels
+			}
+		}
+	}
+	return labels
+}
 
 type Picker struct {
 	lines   []styledLine
@@ -33,6 +65,10 @@ type Picker struct {
 	searchRe   *regexp.Regexp // compiled regex (nil = no active search)
 	searchHits []int          // indices into p.spans that match
 	searchPos  int            // current position in searchHits for n/N cycling
+
+	hinting    bool        // in hint mode
+	hintBuf    string      // chars typed so far
+	hintLabels []hintLabel // computed on entering hint mode
 }
 
 func newPicker() *Picker {
@@ -236,6 +272,65 @@ func (p *Picker) clearSearch() {
 	p.searchHits = p.searchHits[:0]
 }
 
+func (p *Picker) buildHintLabels() {
+	p.hintLabels = p.hintLabels[:0]
+	contentRows := p.rows - 1
+	var visible []int
+	for i, s := range p.spans {
+		if s.Line >= p.viewTop && s.Line < p.viewTop+contentRows {
+			visible = append(visible, i)
+		}
+	}
+	labels := generateHintLabels(len(visible))
+	for i, idx := range visible {
+		p.hintLabels = append(p.hintLabels, hintLabel{spanIdx: idx, label: labels[i]})
+	}
+}
+
+func (p *Picker) exitHintMode() {
+	p.hinting = false
+	p.hintBuf = ""
+	p.hintLabels = p.hintLabels[:0]
+}
+
+func (p *Picker) handleHintKey(key vaxis.Key) inputAction {
+	if key.Matches(vaxis.KeyEsc) {
+		p.exitHintMode()
+		return actionRedraw
+	}
+
+	ch := key.Text
+	if ch == "" || !strings.Contains(hintAlphabet, ch) {
+		p.exitHintMode()
+		return actionRedraw
+	}
+
+	p.hintBuf += ch
+
+	for _, hl := range p.hintLabels {
+		if hl.label == p.hintBuf {
+			p.sel = make(map[int]bool)
+			p.cursor = hl.spanIdx
+			p.exitHintMode()
+			return actionConfirm
+		}
+	}
+
+	hasPrefix := false
+	for _, hl := range p.hintLabels {
+		if strings.HasPrefix(hl.label, p.hintBuf) {
+			hasPrefix = true
+			break
+		}
+	}
+	if !hasPrefix {
+		p.exitHintMode()
+		return actionRedraw
+	}
+
+	return actionRedraw
+}
+
 func (p *Picker) handleSearchKey(key vaxis.Key) inputAction {
 	switch {
 	case key.Matches(vaxis.KeyEsc):
@@ -324,6 +419,9 @@ func (p *Picker) run(onStart func(postEvent func(any))) ([]string, error) {
 			p.cols, p.rows = win.Size()
 			p.ensureVisible()
 		case newDataEvent:
+			if p.hinting {
+				p.exitHintMode()
+			}
 			p.appendData(ev.lines, ev.spans)
 		case inputDoneEvent:
 			p.inputDone = true
@@ -348,6 +446,10 @@ const (
 )
 
 func (p *Picker) handleKey(key vaxis.Key) inputAction {
+	if p.hinting {
+		return p.handleHintKey(key)
+	}
+
 	if p.searching {
 		return p.handleSearchKey(key)
 	}
@@ -435,6 +537,16 @@ func (p *Picker) handleKey(key vaxis.Key) inputAction {
 		p.searchPrev()
 		return actionRedraw
 
+	case key.Matches('f'):
+		p.hinting = true
+		p.hintBuf = ""
+		p.buildHintLabels()
+		if len(p.hintLabels) == 0 {
+			p.hinting = false
+			return actionNone
+		}
+		return actionRedraw
+
 	default:
 		return actionNone
 	}
@@ -455,7 +567,11 @@ func (p *Picker) draw(vx *vaxis.Vaxis) {
 		if lineIdx >= len(p.lines) {
 			break
 		}
-		p.drawLine(win, row, lineIdx, curSpan)
+		if p.hinting {
+			p.drawHintLine(win, row, lineIdx)
+		} else {
+			p.drawLine(win, row, lineIdx, curSpan)
+		}
 	}
 
 	p.drawStatus(win)
@@ -482,6 +598,17 @@ var (
 		Background: vaxis.IndexColor(3),
 	}
 	styleStatusBar = vaxis.Style{Attribute: vaxis.AttrReverse}
+	styleDim       = vaxis.Style{Attribute: vaxis.AttrDim}
+	styleHintLabel = vaxis.Style{
+		Foreground: vaxis.IndexColor(0),
+		Background: vaxis.IndexColor(3),
+		Attribute:  vaxis.AttrBold,
+	}
+	styleHintTyped = vaxis.Style{
+		Foreground: vaxis.IndexColor(0),
+		Background: vaxis.IndexColor(8),
+		Attribute:  vaxis.AttrBold,
+	}
 )
 
 func (p *Picker) spanStyle(text string, isCursor bool, cursorText string) vaxis.Style {
@@ -624,6 +751,91 @@ func (p *Picker) drawStyledLine(win vaxis.Window, row int, sl styledLine, lineId
 	win.Println(row, segs...)
 }
 
+func (p *Picker) drawHintLine(win vaxis.Window, row, lineIdx int) {
+	line := p.lines[lineIdx].text
+
+	type indexedSpan struct {
+		span Span
+		idx  int
+	}
+
+	var lineSpans []indexedSpan
+	start := sort.Search(len(p.spans), func(i int) bool {
+		return p.spans[i].Line >= lineIdx
+	})
+	for i := start; i < len(p.spans) && p.spans[i].Line == lineIdx; i++ {
+		lineSpans = append(lineSpans, indexedSpan{span: p.spans[i], idx: i})
+	}
+
+	hintBySpan := make(map[int]*hintLabel)
+	for i := range p.hintLabels {
+		hintBySpan[p.hintLabels[i].spanIdx] = &p.hintLabels[i]
+	}
+
+	var segs []vaxis.Segment
+	pos := 0
+
+	for _, is := range lineSpans {
+		s := is.span
+		if s.Start > pos {
+			segs = append(segs, vaxis.Segment{Text: line[pos:s.Start], Style: styleDim})
+		}
+
+		hl := hintBySpan[is.idx]
+		spanEnd := min(s.End, len(line))
+		spanText := line[s.Start:spanEnd]
+
+		if hl == nil || !strings.HasPrefix(hl.label, p.hintBuf) {
+			segs = append(segs, vaxis.Segment{Text: spanText, Style: styleDim})
+			pos = spanEnd
+			continue
+		}
+
+		labelRunes := []rune(hl.label)
+		typedLen := utf8.RuneCountInString(p.hintBuf)
+
+		textAfterSpanStart := line[s.Start:]
+		textRunes := []rune(textAfterSpanStart)
+		labelEnd := min(len(labelRunes), len(textRunes))
+
+		if typedLen > 0 {
+			typedEnd := min(typedLen, labelEnd)
+			segs = append(segs, vaxis.Segment{
+				Text:  string(labelRunes[:typedEnd]),
+				Style: styleHintTyped,
+			})
+		}
+
+		// Remaining label chars.
+		if typedLen < labelEnd {
+			segs = append(segs, vaxis.Segment{
+				Text:  string(labelRunes[typedLen:labelEnd]),
+				Style: styleHintLabel,
+			})
+		}
+
+		// If span text is longer than label, show the rest dimmed.
+		spanRunes := []rune(spanText)
+		if len(labelRunes) < len(spanRunes) {
+			segs = append(segs, vaxis.Segment{
+				Text:  string(spanRunes[len(labelRunes):]),
+				Style: styleDim,
+			})
+			pos = spanEnd
+		} else {
+			// Label extends past span boundary: consume those bytes from line.
+			consumed := string(textRunes[:labelEnd])
+			pos = s.Start + len(consumed)
+		}
+	}
+
+	if pos < len(line) {
+		segs = append(segs, vaxis.Segment{Text: line[pos:], Style: styleDim})
+	}
+
+	win.Println(row, segs...)
+}
+
 func (p *Picker) mergeSpanStyle(base vaxis.Style, text string, isCursor bool, cursorText string) vaxis.Style {
 	idx := p.pathIdx[text]
 	selected := p.sel[idx]
@@ -656,6 +868,13 @@ func (p *Picker) drawStatus(win vaxis.Window) {
 }
 
 func (p *Picker) statusLine() string {
+	if p.hinting {
+		if p.hintBuf == "" {
+			return " HINTS: type a label to select"
+		}
+		return fmt.Sprintf(" HINTS: %s_", p.hintBuf)
+	}
+
 	if p.searching {
 		return fmt.Sprintf(" /%s_", p.searchBuf)
 	}
@@ -667,7 +886,7 @@ func (p *Picker) statusLine() string {
 		return fmt.Sprintf(" Reading... %d matches so far", len(p.spans))
 	}
 
-	status := fmt.Sprintf(" %d/%d matches | %d selected | Tab:select  Enter:confirm  Esc/q:cancel",
+	status := fmt.Sprintf(" %d/%d matches | %d selected | Tab:select  f:hints  Enter:confirm  Esc/q:cancel",
 		p.cursor+1, len(p.spans), len(p.sel))
 
 	if p.searchRe != nil {

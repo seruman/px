@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -351,7 +352,7 @@ func TestPickerStatusLine(t *testing.T) {
 	p.rows = 5
 
 	status := p.statusLine()
-	assert.Equal(t, status, " 1/2 matches | 0 selected | Tab:select  Enter:confirm  Esc/q:cancel")
+	assert.Equal(t, status, " 1/2 matches | 0 selected | Tab:select  f:hints  Enter:confirm  Esc/q:cancel")
 }
 
 func TestPickerSearch(t *testing.T) {
@@ -394,7 +395,7 @@ func TestPickerSearch(t *testing.T) {
 	assert.Equal(t, p.searching, false)
 	assert.DeepEqual(t, p.searchHits, []int{0, 2})
 	assert.Equal(t, p.cursor, 0)
-	assert.Equal(t, p.statusLine(), " 1/3 matches | 0 selected | Tab:select  Enter:confirm  Esc/q:cancel [/main: 1/2]")
+	assert.Equal(t, p.statusLine(), " 1/3 matches | 0 selected | Tab:select  f:hints  Enter:confirm  Esc/q:cancel [/main: 1/2]")
 }
 
 func TestPickerSearchNext(t *testing.T) {
@@ -699,4 +700,190 @@ func TestPickerSearchBackspace(t *testing.T) {
 	p.handleKey(vaxis.Key{Keycode: vaxis.KeyBackspace})
 	assert.Equal(t, p.searchBuf, "")
 	assert.Equal(t, len(p.searchHits), 0)
+}
+
+func TestGenerateHintLabels(t *testing.T) {
+	t.Run("zero", func(t *testing.T) {
+		got := generateHintLabels(0)
+		assert.Assert(t, got == nil)
+	})
+
+	t.Run("single char", func(t *testing.T) {
+		got := generateHintLabels(3)
+		assert.DeepEqual(t, got, []string{"a", "s", "d"})
+	})
+
+	t.Run("boundary single char", func(t *testing.T) {
+		got := generateHintLabels(11)
+		assert.DeepEqual(t, got, []string{"a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'"})
+	})
+
+	t.Run("two char", func(t *testing.T) {
+		got := generateHintLabels(12)
+		assert.DeepEqual(t, got, []string{
+			"aa", "as", "ad", "af", "ag", "ah", "aj", "ak", "al", "a;", "a'",
+			"sa",
+		})
+	})
+}
+
+func TestPickerHintModeEnterExit(t *testing.T) {
+	lines := []string{
+		"error in ./src/main.go",
+		"see also /tmp/log.txt",
+	}
+	spans := findPaths(lines)
+	p := newPicker()
+	p.appendData(plainLines(lines), spans)
+	p.inputDone = true
+	p.cols = 80
+	p.rows = 10
+
+	action := p.handleKey(vaxis.Key{Keycode: 'f'})
+	assert.Equal(t, action, actionRedraw)
+	assert.Equal(t, p.hinting, true)
+	assert.Equal(t, len(p.hintLabels), 2)
+	assert.Equal(t, p.hintLabels[0].label, "a")
+	assert.Equal(t, p.hintLabels[1].label, "s")
+	assert.Equal(t, p.statusLine(), " HINTS: type a label to select")
+
+	action = p.handleKey(vaxis.Key{Keycode: vaxis.KeyEsc})
+	assert.Equal(t, action, actionRedraw)
+	assert.Equal(t, p.hinting, false)
+}
+
+func TestPickerHintSelect(t *testing.T) {
+	lines := []string{
+		"error in ./src/main.go",
+		"see also /tmp/log.txt",
+	}
+	spans := findPaths(lines)
+	p := newPicker()
+	p.appendData(plainLines(lines), spans)
+	p.inputDone = true
+	p.cols = 80
+	p.rows = 10
+
+	p.handleKey(vaxis.Key{Keycode: 'f'})
+
+	// Type 's' to select the second span (/tmp/log.txt).
+	action := p.handleKey(vaxis.Key{Keycode: 's', Text: "s"})
+	assert.Equal(t, action, actionConfirm)
+	assert.Equal(t, p.hinting, false)
+	assert.Equal(t, p.cursor, 1)
+	assert.DeepEqual(t, p.selected(), []string{"/tmp/log.txt"})
+}
+
+func TestPickerHintNonAlphabetExits(t *testing.T) {
+	lines := []string{
+		"error in ./src/main.go",
+		"see also /tmp/log.txt",
+	}
+	spans := findPaths(lines)
+	p := newPicker()
+	p.appendData(plainLines(lines), spans)
+	p.inputDone = true
+	p.cols = 80
+	p.rows = 10
+
+	p.handleKey(vaxis.Key{Keycode: 'f'})
+	assert.Equal(t, p.hinting, true)
+
+	action := p.handleKey(vaxis.Key{Keycode: 'z', Text: "z"})
+	assert.Equal(t, action, actionRedraw)
+	assert.Equal(t, p.hinting, false)
+}
+
+func TestPickerHintOnlyVisibleSpans(t *testing.T) {
+	var lineStrs []string
+	for i := range 20 {
+		lineStrs = append(lineStrs, fmt.Sprintf("path/%d/file.go", i))
+	}
+	spans := findPaths(lineStrs)
+	p := newPicker()
+	p.appendData(plainLines(lineStrs), spans)
+	p.inputDone = true
+	p.cols = 80
+	p.rows = 6 // contentRows = 5, so only lines 0-4 visible
+
+	p.handleKey(vaxis.Key{Keycode: 'f'})
+	assert.Equal(t, p.hinting, true)
+	assert.Equal(t, len(p.hintLabels), 5)
+
+	// All hint labels should reference spans within the viewport.
+	for _, hl := range p.hintLabels {
+		line := p.spans[hl.spanIdx].Line
+		assert.Assert(t, line >= p.viewTop && line < p.viewTop+5,
+			"span line %d outside viewport [%d, %d)", line, p.viewTop, p.viewTop+5)
+	}
+	p.exitHintMode()
+}
+
+func TestPickerHintTwoChar(t *testing.T) {
+	var lineStrs []string
+	for i := range 15 {
+		lineStrs = append(lineStrs, fmt.Sprintf("path/%d/file.go", i))
+	}
+	spans := findPaths(lineStrs)
+	p := newPicker()
+	p.appendData(plainLines(lineStrs), spans)
+	p.inputDone = true
+	p.cols = 80
+	p.rows = 20 // all 15 visible
+
+	p.handleKey(vaxis.Key{Keycode: 'f'})
+	assert.Equal(t, p.hinting, true)
+	assert.Equal(t, len(p.hintLabels), 15)
+	assert.Equal(t, p.hintLabels[0].label, "aa")
+	assert.Equal(t, p.hintLabels[1].label, "as")
+
+	// Type first char: should redraw (prefix matches exist).
+	action := p.handleKey(vaxis.Key{Keycode: 'a', Text: "a"})
+	assert.Equal(t, action, actionRedraw)
+	assert.Equal(t, p.hinting, true)
+	assert.Equal(t, p.hintBuf, "a")
+	assert.Equal(t, p.statusLine(), " HINTS: a_")
+
+	// Type second char: should confirm.
+	action = p.handleKey(vaxis.Key{Keycode: 's', Text: "s"})
+	assert.Equal(t, action, actionConfirm)
+	assert.Equal(t, p.hinting, false)
+	assert.Equal(t, p.cursor, 1)
+	assert.DeepEqual(t, p.selected(), []string{p.spans[1].Text})
+}
+
+func TestPickerHintNoVisibleMatches(t *testing.T) {
+	// No spans at all.
+	p := newPicker()
+	p.inputDone = true
+	p.cols = 80
+	p.rows = 10
+
+	action := p.handleKey(vaxis.Key{Keycode: 'f'})
+	assert.Equal(t, action, actionNone)
+	assert.Equal(t, p.hinting, false)
+}
+
+func TestPickerHintClearsSelection(t *testing.T) {
+	lines := []string{
+		"error in ./src/main.go",
+		"see also /tmp/log.txt",
+	}
+	spans := findPaths(lines)
+	p := newPicker()
+	p.appendData(plainLines(lines), spans)
+	p.inputDone = true
+	p.cols = 80
+	p.rows = 10
+
+	// Toggle first span selected.
+	p.toggleCurrent()
+	assert.Equal(t, len(p.sel), 1)
+
+	// Enter hint mode and select second via hint.
+	p.handleKey(vaxis.Key{Keycode: 'f'})
+	action := p.handleKey(vaxis.Key{Keycode: 's', Text: "s"})
+	assert.Equal(t, action, actionConfirm)
+	assert.Equal(t, len(p.sel), 0)
+	assert.DeepEqual(t, p.selected(), []string{"/tmp/log.txt"})
 }
