@@ -603,7 +603,7 @@ var (
 		Background: vaxis.IndexColor(3),
 	}
 	styleStatusBar = vaxis.Style{Attribute: vaxis.AttrReverse}
-	styleDim       = vaxis.Style{Attribute: vaxis.AttrDim}
+	styleDim       = vaxis.Style{Foreground: vaxis.IndexColor(8)}
 	styleHintLabel = vaxis.Style{
 		Foreground: vaxis.IndexColor(0),
 		Background: vaxis.IndexColor(3),
