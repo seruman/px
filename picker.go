@@ -572,10 +572,9 @@ func (p *Picker) draw(vx *vaxis.Vaxis) {
 		if lineIdx >= len(p.lines) {
 			break
 		}
+		p.drawLine(win, row, lineIdx, curSpan)
 		if p.hinting {
-			p.drawHintLine(win, row, lineIdx)
-		} else {
-			p.drawLine(win, row, lineIdx, curSpan)
+			p.drawHintOverlay(win, row, lineIdx)
 		}
 	}
 
@@ -603,16 +602,13 @@ var (
 		Background: vaxis.IndexColor(3),
 	}
 	styleStatusBar = vaxis.Style{Attribute: vaxis.AttrReverse}
-	styleDim       = vaxis.Style{Foreground: vaxis.IndexColor(8)}
 	styleHintLabel = vaxis.Style{
-		Foreground: vaxis.IndexColor(0),
+		Foreground: vaxis.IndexColor(15),
 		Background: vaxis.IndexColor(3),
-		Attribute:  vaxis.AttrBold,
 	}
 	styleHintTyped = vaxis.Style{
-		Foreground: vaxis.IndexColor(0),
+		Foreground: vaxis.IndexColor(15),
 		Background: vaxis.IndexColor(8),
-		Attribute:  vaxis.AttrBold,
 	}
 )
 
@@ -746,82 +742,52 @@ func (p *Picker) drawStyledLine(win vaxis.Window, row int, sl styledLine, lineId
 	win.Println(row, segs...)
 }
 
-func (p *Picker) drawHintLine(win vaxis.Window, row, lineIdx int) {
-	line := p.lines[lineIdx].text
-
-	var lineSpans []indexedSpan
-	start := sort.Search(len(p.spans), func(i int) bool {
-		return p.spans[i].Line >= lineIdx
-	})
-	for i := start; i < len(p.spans) && p.spans[i].Line == lineIdx; i++ {
-		lineSpans = append(lineSpans, indexedSpan{span: p.spans[i], idx: i})
-	}
-
+func (p *Picker) drawHintOverlay(win vaxis.Window, row, lineIdx int) {
 	hintBySpan := make(map[int]*hintLabel)
 	for i := range p.hintLabels {
 		hintBySpan[p.hintLabels[i].spanIdx] = &p.hintLabels[i]
 	}
 
-	var segs []vaxis.Segment
-	pos := 0
+	sl := p.lines[lineIdx]
 
-	for _, is := range lineSpans {
-		s := is.span
-		if s.Start > pos {
-			segs = append(segs, vaxis.Segment{Text: line[pos:s.Start], Style: styleDim})
-		}
-
-		hl := hintBySpan[is.idx]
-		spanEnd := min(s.End, len(line))
-		spanText := line[s.Start:spanEnd]
-
+	start := sort.Search(len(p.spans), func(i int) bool {
+		return p.spans[i].Line >= lineIdx
+	})
+	for i := start; i < len(p.spans) && p.spans[i].Line == lineIdx; i++ {
+		hl := hintBySpan[i]
 		if hl == nil || !strings.HasPrefix(hl.label, p.hintBuf) {
-			segs = append(segs, vaxis.Segment{Text: spanText, Style: styleDim})
-			pos = spanEnd
 			continue
 		}
 
-		labelRunes := []rune(hl.label)
+		col := colForByte(sl, p.spans[i].Start)
 		typedLen := utf8.RuneCountInString(p.hintBuf)
-
-		textAfterSpanStart := line[s.Start:]
-		textRunes := []rune(textAfterSpanStart)
-		labelEnd := min(len(labelRunes), len(textRunes))
-
-		if typedLen > 0 {
-			typedEnd := min(typedLen, labelEnd)
-			segs = append(segs, vaxis.Segment{
-				Text:  string(labelRunes[:typedEnd]),
-				Style: styleHintTyped,
+		for j, r := range []rune(hl.label) {
+			style := styleHintLabel
+			if j < typedLen {
+				style = styleHintTyped
+			}
+			win.SetCell(col+j, row, vaxis.Cell{
+				Character: vaxis.Character{Grapheme: string(r), Width: 1},
+				Style:     style,
 			})
-		}
-
-		if typedLen < labelEnd {
-			segs = append(segs, vaxis.Segment{
-				Text:  string(labelRunes[typedLen:labelEnd]),
-				Style: styleHintLabel,
-			})
-		}
-
-		spanRunes := []rune(spanText)
-		if len(labelRunes) < len(spanRunes) {
-			segs = append(segs, vaxis.Segment{
-				Text:  string(spanRunes[len(labelRunes):]),
-				Style: styleDim,
-			})
-			pos = spanEnd
-		} else {
-			// Label extends past span boundary: consume those bytes from line.
-			consumed := string(textRunes[:labelEnd])
-			pos = s.Start + len(consumed)
 		}
 	}
+}
 
-	if pos < len(line) {
-		segs = append(segs, vaxis.Segment{Text: line[pos:], Style: styleDim})
+func colForByte(sl styledLine, bytePos int) int {
+	if sl.cells != nil {
+		col := 0
+		off := 0
+		for _, c := range sl.cells {
+			if off >= bytePos {
+				return col
+			}
+			off += len(c.Grapheme)
+			col += c.Width
+		}
+		return col
 	}
-
-	win.Println(row, segs...)
+	return utf8.RuneCountInString(sl.text[:bytePos])
 }
 
 func (p *Picker) mergeSpanStyle(base vaxis.Style, text string, isCursor bool, cursorText string) vaxis.Style {
