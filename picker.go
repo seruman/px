@@ -100,10 +100,11 @@ func (p *Picker) appendData(lines []styledLine, spans []Span) {
 	})
 
 	for _, s := range spans {
-		if _, ok := p.pathIdx[s.Text]; !ok {
-			p.pathIdx[s.Text] = len(p.unique)
-			p.unique = append(p.unique, s.Text)
+		if _, ok := p.pathIdx[s.Text]; ok {
+			continue
 		}
+		p.pathIdx[s.Text] = len(p.unique)
+		p.unique = append(p.unique, s.Text)
 	}
 
 	if curSpan != (Span{}) {
@@ -124,8 +125,10 @@ func (p *Picker) ensureVisible() {
 	if len(p.spans) == 0 {
 		return
 	}
+
 	line := p.spans[p.cursor].Line
 	contentRows := p.rows - 1
+
 	if line < p.viewTop {
 		p.viewTop = line
 	}
@@ -134,17 +137,18 @@ func (p *Picker) ensureVisible() {
 	}
 }
 
-// If none were explicitly toggled, returns the text under the cursor.
 func (p *Picker) selected() []string {
 	if len(p.sel) == 0 {
 		return []string{p.spans[p.cursor].Text}
 	}
+
 	var texts []string
 	for i, text := range p.unique {
 		if p.sel[i] {
 			texts = append(texts, text)
 		}
 	}
+
 	return texts
 }
 
@@ -190,21 +194,26 @@ func (p *Picker) moveBy(n int) {
 	if len(p.spans) == 0 {
 		return
 	}
+
 	p.cursor += n
+
 	if p.cursor < 0 {
 		p.cursor = 0
 	}
 	if p.cursor >= len(p.spans) {
 		p.cursor = len(p.spans) - 1
 	}
+
 	p.ensureVisible()
 }
 
 func (p *Picker) updateSearchHits() {
 	p.searchHits = p.searchHits[:0]
+
 	if p.searchRe == nil {
 		return
 	}
+
 	for i, s := range p.spans {
 		if p.searchRe.MatchString(s.Text) {
 			p.searchHits = append(p.searchHits, i)
@@ -216,11 +225,12 @@ func (p *Picker) searchNext() {
 	if len(p.searchHits) == 0 {
 		return
 	}
-	// Find first hit after cursor.
+
 	idx := sort.SearchInts(p.searchHits, p.cursor+1)
 	if idx >= len(p.searchHits) {
 		idx = 0
 	}
+
 	p.cursor = p.searchHits[idx]
 	p.searchPos = idx
 	p.ensureVisible()
@@ -230,11 +240,12 @@ func (p *Picker) searchPrev() {
 	if len(p.searchHits) == 0 {
 		return
 	}
-	// Find last hit before cursor.
+
 	idx := sort.SearchInts(p.searchHits, p.cursor) - 1
 	if idx < 0 {
 		idx = len(p.searchHits) - 1
 	}
+
 	p.cursor = p.searchHits[idx]
 	p.searchPos = idx
 	p.ensureVisible()
@@ -244,11 +255,12 @@ func (p *Picker) searchJumpNearest() {
 	if len(p.searchHits) == 0 {
 		return
 	}
-	// Find first hit at or after cursor.
+
 	idx := sort.SearchInts(p.searchHits, p.cursor)
 	if idx >= len(p.searchHits) {
 		idx = 0
 	}
+
 	p.cursor = p.searchHits[idx]
 	p.searchPos = idx
 	p.ensureVisible()
@@ -260,11 +272,12 @@ func (p *Picker) recompileSearch() {
 		p.updateSearchHits()
 		return
 	}
+
 	re, err := regexp.Compile(p.searchBuf)
 	if err != nil {
-		// Invalid regex mid-typing: keep previous state.
 		return
 	}
+
 	p.searchRe = re
 	p.updateSearchHits()
 	p.searchJumpNearest()
@@ -280,12 +293,14 @@ func (p *Picker) clearSearch() {
 func (p *Picker) buildHintLabels() {
 	p.hintLabels = p.hintLabels[:0]
 	contentRows := p.rows - 1
+
 	var visible []int
 	for i, s := range p.spans {
 		if s.Line >= p.viewTop && s.Line < p.viewTop+contentRows {
 			visible = append(visible, i)
 		}
 	}
+
 	labels := generateHintLabels(len(visible))
 	for i, idx := range visible {
 		p.hintLabels = append(p.hintLabels, hintLabel{spanIdx: idx, label: labels[i]})
@@ -328,6 +343,7 @@ func (p *Picker) handleHintKey(key vaxis.Key) inputAction {
 			break
 		}
 	}
+
 	if !hasPrefix {
 		p.exitHintMode()
 		return actionRedraw
@@ -368,6 +384,7 @@ func (p *Picker) isSearchHit(spanIdx int) bool {
 	if len(p.searchHits) == 0 {
 		return false
 	}
+
 	i := sort.SearchInts(p.searchHits, spanIdx)
 	return i < len(p.searchHits) && p.searchHits[i] == spanIdx
 }
@@ -377,17 +394,22 @@ func appendSearchHighlight(segs []vaxis.Segment, text string, baseStyle, matchSt
 	if len(matches) == 0 {
 		return append(segs, vaxis.Segment{Text: text, Style: matchStyle})
 	}
+
 	pos := 0
+
 	for _, m := range matches {
 		if m[0] > pos {
 			segs = append(segs, vaxis.Segment{Text: text[pos:m[0]], Style: baseStyle})
 		}
+
 		segs = append(segs, vaxis.Segment{Text: text[m[0]:m[1]], Style: matchStyle})
 		pos = m[1]
 	}
+
 	if pos < len(text) {
 		segs = append(segs, vaxis.Segment{Text: text[pos:], Style: baseStyle})
 	}
+
 	return segs
 }
 
@@ -413,31 +435,38 @@ func (p *Picker) run(onStart func(postEvent func(any))) ([]string, error) {
 		switch ev := ev.(type) {
 		case vaxis.Key:
 			action := p.handleKey(ev)
+
 			switch action {
 			case actionConfirm:
 				return p.selected(), nil
 			case actionCancel:
 				return nil, nil
 			}
+
 		case vaxis.Resize:
 			win = vx.Window()
 			p.cols, p.rows = win.Size()
 			p.ensureVisible()
+
 		case newDataEvent:
 			if p.hinting {
 				p.exitHintMode()
 			}
 			p.appendData(ev.lines, ev.spans)
+
 		case inputDoneEvent:
 			p.inputDone = true
 			if len(p.spans) == 0 {
 				return nil, errNoMatches
 			}
+
 		case inputErrorEvent:
 			return nil, ev.err
 		}
+
 		p.draw(vx)
 	}
+
 	return nil, nil
 }
 
@@ -560,8 +589,8 @@ func (p *Picker) handleKey(key vaxis.Key) inputAction {
 func (p *Picker) draw(vx *vaxis.Vaxis) {
 	win := vx.Window()
 	win.Clear()
-
 	contentRows := p.rows - 1
+
 	var curSpan Span
 	if len(p.spans) > 0 {
 		curSpan = p.spans[p.cursor]
@@ -572,6 +601,7 @@ func (p *Picker) draw(vx *vaxis.Vaxis) {
 		if lineIdx >= len(p.lines) {
 			break
 		}
+
 		p.drawLine(win, row, lineIdx, curSpan)
 		if p.hinting {
 			p.drawHintOverlay(win, row, lineIdx)
@@ -653,12 +683,15 @@ func (p *Picker) drawPlainLine(win vaxis.Window, row int, line string, lineIdx i
 
 	for _, is := range lineSpans {
 		s := is.span
+
 		if s.Start > pos {
 			segs = append(segs, vaxis.Segment{Text: line[pos:s.Start]})
 		}
+
 		isCursor := s.Line == curSpan.Line && s.Start == curSpan.Start
 		style := p.spanStyle(s.Text, isCursor, curSpan.Text)
 		spanText := line[s.Start:s.End]
+
 		if p.searchRe != nil && p.isSearchHit(is.idx) {
 			matchStyle := style
 			matchStyle.Foreground = styleSearchMatch.Foreground
@@ -670,6 +703,7 @@ func (p *Picker) drawPlainLine(win vaxis.Window, row int, line string, lineIdx i
 		} else {
 			segs = append(segs, vaxis.Segment{Text: spanText, Style: style})
 		}
+
 		pos = s.End
 	}
 
@@ -682,6 +716,7 @@ func (p *Picker) drawPlainLine(win vaxis.Window, row int, line string, lineIdx i
 
 func (p *Picker) drawStyledLine(win vaxis.Window, row int, sl styledLine, lineIdx int, curSpan Span) {
 	var lineSpans []indexedSpan
+
 	start := sort.Search(len(p.spans), func(i int) bool {
 		return p.spans[i].Line >= lineIdx
 	})
@@ -761,11 +796,13 @@ func (p *Picker) drawHintOverlay(win vaxis.Window, row, lineIdx int) {
 
 		col := colForByte(sl, p.spans[i].Start)
 		typedLen := utf8.RuneCountInString(p.hintBuf)
+
 		for j, r := range []rune(hl.label) {
 			style := styleHintLabel
 			if j < typedLen {
 				style = styleHintTyped
 			}
+
 			win.SetCell(col+j, row, vaxis.Cell{
 				Character: vaxis.Character{Grapheme: string(r), Width: 1},
 				Style:     style,
@@ -775,26 +812,29 @@ func (p *Picker) drawHintOverlay(win vaxis.Window, row, lineIdx int) {
 }
 
 func colForByte(sl styledLine, bytePos int) int {
-	if sl.cells != nil {
-		col := 0
-		off := 0
-		for _, c := range sl.cells {
-			if off >= bytePos {
-				return col
-			}
-			off += len(c.Grapheme)
-			col += c.Width
-		}
-		return col
+	if sl.cells == nil {
+		return utf8.RuneCountInString(sl.text[:bytePos])
 	}
-	return utf8.RuneCountInString(sl.text[:bytePos])
+
+	col := 0
+	off := 0
+
+	for _, c := range sl.cells {
+		if off >= bytePos {
+			return col
+		}
+		off += len(c.Grapheme)
+		col += c.Width
+	}
+
+	return col
 }
 
 func (p *Picker) mergeSpanStyle(base vaxis.Style, text string, isCursor bool, cursorText string) vaxis.Style {
 	idx := p.pathIdx[text]
 	selected := p.sel[idx]
-
 	s := base
+
 	switch {
 	case isCursor && selected:
 		s.Foreground = vaxis.IndexColor(2)
@@ -842,20 +882,22 @@ func (p *Picker) statusLine() string {
 
 	status := fmt.Sprintf(" %d/%d matches | %d selected | Tab:select  f:hints  Enter:confirm  Esc/q:cancel",
 		p.cursor+1, len(p.spans), len(p.sel))
+	if p.searchRe == nil {
+		return status
+	}
 
-	if p.searchRe != nil {
-		hitPos := -1
-		for i, idx := range p.searchHits {
-			if idx == p.cursor {
-				hitPos = i + 1
-				break
-			}
+	hitPos := -1
+	for i, idx := range p.searchHits {
+		if idx == p.cursor {
+			hitPos = i + 1
+			break
 		}
-		if hitPos > 0 {
-			status += fmt.Sprintf(" [/%s: %d/%d]", p.searchRe.String(), hitPos, len(p.searchHits))
-		} else {
-			status += fmt.Sprintf(" [/%s: %d matches]", p.searchRe.String(), len(p.searchHits))
-		}
+	}
+
+	if hitPos > 0 {
+		status += fmt.Sprintf(" [/%s: %d/%d]", p.searchRe.String(), hitPos, len(p.searchHits))
+	} else {
+		status += fmt.Sprintf(" [/%s: %d matches]", p.searchRe.String(), len(p.searchHits))
 	}
 
 	return status

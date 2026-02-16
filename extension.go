@@ -21,8 +21,10 @@ func shellSplit(s string) ([]string, error) {
 	var word strings.Builder
 	inWord := false
 	i := 0
+
 	for i < len(s) {
 		ch := s[i]
+
 		switch {
 		case ch == '\'':
 			inWord = true
@@ -35,6 +37,7 @@ func shellSplit(s string) ([]string, error) {
 				return nil, fmt.Errorf("unterminated single quote")
 			}
 			i++
+
 		case ch == '"':
 			inWord = true
 			i++
@@ -54,6 +57,7 @@ func shellSplit(s string) ([]string, error) {
 				return nil, fmt.Errorf("unterminated double quote")
 			}
 			i++
+
 		case ch == ' ' || ch == '\t':
 			if inWord {
 				words = append(words, word.String())
@@ -61,15 +65,18 @@ func shellSplit(s string) ([]string, error) {
 				inWord = false
 			}
 			i++
+
 		default:
 			inWord = true
 			word.WriteByte(ch)
 			i++
 		}
 	}
+
 	if inWord {
 		words = append(words, word.String())
 	}
+
 	return words, nil
 }
 
@@ -135,14 +142,17 @@ func newStyledLine(raw string) styledLine {
 	if !strings.Contains(raw, "\x1b") {
 		return styledLine{text: raw}
 	}
+
 	// ParseStyledString treats tabs as control characters and drops them.
 	// Expand tabs to spaces at 8-column tab stops before parsing.
 	sanitized := expandTabsANSI(raw)
 	cells := vaxis.ParseStyledString(sanitized)
+
 	var b strings.Builder
 	for _, c := range cells {
 		b.WriteString(c.Grapheme)
 	}
+
 	return styledLine{text: b.String(), cells: cells}
 }
 
@@ -152,9 +162,11 @@ func expandTabsANSI(s string) string {
 	if !strings.Contains(s, "\t") {
 		return s
 	}
+
 	var b strings.Builder
 	col := 0
 	i := 0
+
 	for i < len(s) {
 		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
 			// CSI sequence: skip parameter (0x30-0x3F) and intermediate
@@ -171,6 +183,7 @@ func expandTabsANSI(s string) string {
 			i = j
 			continue
 		}
+
 		if s[i] == '\t' {
 			spaces := 8 - (col % 8)
 			b.WriteString(strings.Repeat(" ", spaces))
@@ -178,11 +191,13 @@ func expandTabsANSI(s string) string {
 			i++
 			continue
 		}
+
 		_, size := utf8.DecodeRuneInString(s[i:])
 		b.WriteString(s[i : i+size])
 		col++
 		i += size
 	}
+
 	return b.String()
 }
 
@@ -227,6 +242,7 @@ func startMatchers(
 		if m.ext == nil {
 			continue
 		}
+
 		cmd := exec.Command(m.ext.bin, m.ext.args...)
 		cmd.Stderr = os.Stderr
 		if width > 0 {
@@ -286,6 +302,7 @@ func startMatchers(
 			if len(batchLines) == 0 && len(batchSpans) == 0 {
 				return
 			}
+
 			postEvent(newDataEvent{lines: batchLines, spans: batchSpans})
 			batchLines = nil
 			batchSpans = nil
@@ -348,11 +365,13 @@ func startMatchers(
 			if raw == "" {
 				continue
 			}
+
 			span, err := parseSpanLine(raw, lines)
 			if err != nil {
 				postEvent(inputErrorEvent{err: fmt.Errorf("parse extension output: %w", err)})
 				return
 			}
+
 			extSpans = append(extSpans, span)
 		}
 

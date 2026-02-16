@@ -89,7 +89,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "px: empty -e value\n")
 			os.Exit(1)
 		}
+
 		name := words[0]
+
 		if name == "regex" {
 			if len(words) != 2 {
 				fmt.Fprintf(os.Stderr, "px: regex matcher requires exactly one pattern argument\n")
@@ -104,29 +106,38 @@ func main() {
 				name:    name,
 				builtin: matchRegex(re),
 			})
-		} else if bin, lookErr := exec.LookPath("px-" + name); lookErr == nil {
+			continue
+		}
+
+		if bin, lookErr := exec.LookPath("px-" + name); lookErr == nil {
 			matchers = append(matchers, resolvedMatcher{
 				name: name,
 				ext:  &extDef{bin, words[1:]},
 			})
-		} else if fn, ok := builtinMatchers[name]; ok {
+			continue
+		}
+
+		if fn, ok := builtinMatchers[name]; ok {
 			matchers = append(matchers, resolvedMatcher{
 				name:    name,
 				builtin: fn,
 			})
-		} else {
-			fmt.Fprintf(os.Stderr, "px: unknown matcher %q (no px-%s in PATH and no built-in)\n", name, name)
-			os.Exit(1)
+			continue
 		}
+
+		fmt.Fprintf(os.Stderr, "px: unknown matcher %q (no px-%s in PATH and no built-in)\n", name, name)
+		os.Exit(1)
 	}
 
 	p := newPicker()
+
 	var cancel func()
 	defer func() {
 		if cancel != nil {
 			cancel()
 		}
 	}()
+
 	selected, err := p.run(func(postEvent func(any)) {
 		cancel = startMatchers(lineSeq, matchers, width, postEvent)
 	})
