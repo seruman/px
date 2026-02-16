@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mattn/go-shellwords"
 	"golang.org/x/term"
 )
 
@@ -80,7 +81,7 @@ func main() {
 
 	var matchers []resolvedMatcher
 	for _, ext := range extensions {
-		words, err := shellSplit(ext)
+		words, err := shellwords.Parse(ext)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "px: invalid -e value %q: %v\n", ext, err)
 			os.Exit(1)

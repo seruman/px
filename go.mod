@@ -13,6 +13,7 @@ require (
 	github.com/containerd/console v1.0.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/mattn/go-runewidth v0.0.14 // indirect
+	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/mattn/go-sixel v0.0.5 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/soniakeys/quant v1.0.0 // indirect
