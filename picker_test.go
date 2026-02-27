@@ -14,9 +14,31 @@ import (
 func plainLines(ss []string) []styledLine {
 	sls := make([]styledLine, len(ss))
 	for i, s := range ss {
-		sls[i] = styledLine{text: s}
+		sls[i] = styledLine{raw: s, text: s}
 	}
 	return sls
+}
+
+func TestColForBytePlainTabs(t *testing.T) {
+	sl := styledLine{text: "\tfoo"}
+	assert.Equal(t, colForByte(sl, 1), 8)
+
+	sl = styledLine{text: "a\tfoo"}
+	assert.Equal(t, colForByte(sl, 2), 8)
+
+	sl = styledLine{text: "héllo"}
+	assert.Equal(t, colForByte(sl, len("h")), 1)
+	assert.Equal(t, colForByte(sl, len("hé")), 2)
+}
+
+func TestHintColForSpan(t *testing.T) {
+	sl := styledLine{text: "\t\tchunknl/"}
+	span := Span{Start: 2}
+	assert.Equal(t, hintColForSpan(sl, span), 0)
+
+	sl = styledLine{text: "Your branch is up to date with origin/main."}
+	span = Span{Start: 30}
+	assert.Equal(t, hintColForSpan(sl, span), colForByte(sl, span.Start))
 }
 
 func TestPickerNavigation(t *testing.T) {

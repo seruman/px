@@ -291,11 +291,13 @@ func TestStartMatchersANSITabs(t *testing.T) {
 
 func TestNewStyledLinePreservesTabs(t *testing.T) {
 	sl := newStyledLine("\x1b[32m+\tcode\x1b[m")
+	assert.Equal(t, sl.raw, "+\tcode")
 	assert.Equal(t, sl.text, "+       code")
 	assert.Assert(t, sl.cells != nil)
 
 	// Without ANSI, tabs pass through as-is.
 	sl = newStyledLine("+\tcode")
+	assert.Equal(t, sl.raw, "+\tcode")
 	assert.Equal(t, sl.text, "+\tcode")
 	assert.Assert(t, sl.cells == nil)
 }

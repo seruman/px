@@ -70,14 +70,19 @@ type resolvedMatcher struct {
 }
 
 type styledLine struct {
-	text  string       // ANSI-stripped clean text
-	cells []vaxis.Cell // styled cells (nil when input has no ANSI)
+	raw   string       // ANSI-stripped text with tabs preserved
+	text  string       // rendered text, tabs may be expanded for ANSI input
+	cells []vaxis.Cell // styled cells, nil when input has no ANSI
 }
+
+const tabStop = 8
 
 func newStyledLine(raw string) styledLine {
 	if !strings.Contains(raw, "\x1b") {
-		return styledLine{text: raw}
+		return styledLine{raw: raw, text: raw}
 	}
+
+	plain := stripANSI(raw)
 
 	// ParseStyledString treats tabs as control characters and drops them.
 	// Expand tabs to spaces at 8-column tab stops before parsing.
@@ -89,7 +94,82 @@ func newStyledLine(raw string) styledLine {
 		b.WriteString(c.Grapheme)
 	}
 
-	return styledLine{text: b.String(), cells: cells}
+	return styledLine{raw: plain, text: b.String(), cells: cells}
+}
+
+func advanceTab(col int) int {
+	return col + (tabStop - (col % tabStop))
+}
+
+func textColForByte(text string, bytePos int) int {
+	col := 0
+	i := 0
+	for i < bytePos {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if r == '\t' {
+			col = advanceTab(col)
+		} else {
+			col++
+		}
+		i += size
+	}
+	return col
+}
+
+func displayByteForRawByte(text string, bytePos int) int {
+	col := 0
+	disp := 0
+	i := 0
+	for i < bytePos {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if r == '\t' {
+			next := advanceTab(col)
+			disp += next - col
+			col = next
+		} else {
+			disp += size
+			col++
+		}
+		i += size
+	}
+	return disp
+}
+
+func mapSpanForDisplay(span Span, sl styledLine) Span {
+	if sl.raw == sl.text {
+		return span
+	}
+	span.Start = displayByteForRawByte(sl.raw, span.Start)
+	span.End = displayByteForRawByte(sl.raw, span.End)
+	return span
+}
+
+func stripANSI(s string) string {
+	if !strings.Contains(s, "\x1b") {
+		return s
+	}
+
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && s[j] >= 0x20 && (s[j] < 0x40 || s[j] > 0x7E) {
+				j++
+			}
+			if j < len(s) && s[j] >= 0x40 && s[j] <= 0x7E {
+				j++
+			}
+			i = j
+			continue
+		}
+
+		_, size := utf8.DecodeRuneInString(s[i:])
+		b.WriteString(s[i : i+size])
+		i += size
+	}
+
+	return b.String()
 }
 
 // expandTabsANSI expands tab characters to spaces at 8-column tab stops,
@@ -121,9 +201,9 @@ func expandTabsANSI(s string) string {
 		}
 
 		if s[i] == '\t' {
-			spaces := 8 - (col % 8)
-			b.WriteString(strings.Repeat(" ", spaces))
-			col += spaces
+			next := advanceTab(col)
+			b.WriteString(strings.Repeat(" ", next-col))
+			col = next
 			i++
 			continue
 		}
@@ -230,6 +310,7 @@ func startMatchers(
 		}
 
 		var lines []string
+		var styledLines []styledLine
 		var batchLines []styledLine
 		var batchSpans []Span
 		lastFlush := time.Now()
@@ -252,17 +333,21 @@ func startMatchers(
 
 			sl := newStyledLine(line)
 			lineIdx := len(lines)
-			lines = append(lines, sl.text)
+			lines = append(lines, sl.raw)
+			styledLines = append(styledLines, sl)
 			batchLines = append(batchLines, sl)
 
 			for _, m := range matchers {
-				if m.builtin != nil {
-					batchSpans = append(batchSpans, m.builtin(lineIdx, sl.text)...)
+				if m.builtin == nil {
+					continue
+				}
+				for _, span := range m.builtin(lineIdx, sl.raw) {
+					batchSpans = append(batchSpans, mapSpanForDisplay(span, sl))
 				}
 			}
 
 			for _, p := range procs {
-				fmt.Fprintln(p.stdin, sl.text)
+				fmt.Fprintln(p.stdin, sl.raw)
 			}
 
 			if len(batchLines) >= batchSize || time.Since(lastFlush) >= flushInterval {
@@ -308,7 +393,7 @@ func startMatchers(
 				return
 			}
 
-			extSpans = append(extSpans, span)
+			extSpans = append(extSpans, mapSpanForDisplay(span, styledLines[span.Line]))
 		}
 
 		if len(extSpans) > 0 {

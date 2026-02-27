@@ -794,7 +794,7 @@ func (p *Picker) drawHintOverlay(win vaxis.Window, row, lineIdx int) {
 			continue
 		}
 
-		col := colForByte(sl, p.spans[i].Start)
+		col := hintColForSpan(sl, p.spans[i])
 		typedLen := utf8.RuneCountInString(p.hintBuf)
 
 		for j, r := range []rune(hl.label) {
@@ -813,7 +813,7 @@ func (p *Picker) drawHintOverlay(win vaxis.Window, row, lineIdx int) {
 
 func colForByte(sl styledLine, bytePos int) int {
 	if sl.cells == nil {
-		return utf8.RuneCountInString(sl.text[:bytePos])
+		return textColForByte(sl.text, bytePos)
 	}
 
 	col := 0
@@ -828,6 +828,16 @@ func colForByte(sl styledLine, bytePos int) int {
 	}
 
 	return col
+}
+
+func hintColForSpan(sl styledLine, span Span) int {
+	if span.Start <= len(sl.text) {
+		prefix := sl.text[:span.Start]
+		if strings.TrimSpace(prefix) == "" {
+			return 0
+		}
+	}
+	return colForByte(sl, span.Start)
 }
 
 func (p *Picker) mergeSpanStyle(base vaxis.Style, text string, isCursor bool, cursorText string) vaxis.Style {
