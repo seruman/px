@@ -24,7 +24,7 @@ Pipe any command output to px. It displays the original input with matches highl
 make 2>&1 | px
 
 # Find URLs in logs
-curl -v https://example.com 2>&1 | px -e urls
+curl -v https://example.com 2>&1 | px -e url
 
 # Find multiple patterns
 git log --oneline | px -e sha -e paths
@@ -45,8 +45,8 @@ git status | px | xargs git add
 ## Built-in Matchers
 
 - `paths` - file paths, default
-- `urls` - URLs
-- `ips` - IPv4 and IPv6 addresses
+- `url` - URLs
+- `ip` - IPv4 and IPv6 addresses
 - `sha` - git SHAs, 7+ hex chars
 - `email` - email addresses
 - `regex <pattern>` - custom regex
