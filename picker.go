@@ -614,11 +614,13 @@ var (
 	stylePath     = vaxis.Style{UnderlineStyle: vaxis.UnderlineSingle}
 	styleCursor   = vaxis.Style{Attribute: vaxis.AttrReverse}
 	styleSelected = vaxis.Style{
-		Foreground:     vaxis.IndexColor(2),
+		Foreground:     vaxis.IndexColor(15),
+		Background:     vaxis.IndexColor(2),
 		UnderlineStyle: vaxis.UnderlineSingle,
 	}
 	styleCursorSelected = vaxis.Style{
-		Foreground: vaxis.IndexColor(2),
+		Foreground: vaxis.IndexColor(15),
+		Background: vaxis.IndexColor(2),
 		Attribute:  vaxis.AttrReverse,
 	}
 	styleSearchMatch = vaxis.Style{
@@ -837,12 +839,14 @@ func (p *Picker) mergeSpanStyle(base vaxis.Style, span Span, isCursor bool, _ st
 
 	switch {
 	case isCursor && selected:
-		s.Foreground = vaxis.IndexColor(2)
+		s.Foreground = vaxis.IndexColor(15)
+		s.Background = vaxis.IndexColor(2)
 		s.Attribute |= vaxis.AttrReverse
 	case isCursor:
 		s.Attribute |= vaxis.AttrReverse
 	case selected:
-		s.Foreground = vaxis.IndexColor(2)
+		s.Foreground = vaxis.IndexColor(15)
+		s.Background = vaxis.IndexColor(2)
 		s.UnderlineStyle = vaxis.UnderlineSingle
 	default:
 		s.UnderlineStyle = vaxis.UnderlineSingle
