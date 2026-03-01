@@ -85,11 +85,11 @@ func TestPickerToggleSelection(t *testing.T) {
 	p.rows = 10
 
 	p.toggleCurrent()
-	assert.Equal(t, p.sel[p.pathIdx["./src/main.go"]], true)
+	assert.Equal(t, p.sel[keyForSpan(p.spans[0])], true)
 
 	// Toggle again deselects.
 	p.toggleCurrent()
-	_, exists := p.sel[p.pathIdx["./src/main.go"]]
+	_, exists := p.sel[keyForSpan(p.spans[0])]
 	assert.Assert(t, !exists)
 }
 
@@ -135,15 +135,32 @@ func TestPickerDuplicatePaths(t *testing.T) {
 	p.appendData(plainLines(lines), spans)
 	p.inputDone = true
 
-	assert.Equal(t, len(p.unique), 1)
-	assert.Equal(t, p.unique[0], "src/main.go")
 	assert.Equal(t, len(p.spans), 3)
 
 	p.toggleCurrent()
-	assert.Equal(t, p.sel[0], true)
+	assert.Equal(t, p.sel[keyForSpan(p.spans[0])], true)
+	assert.Assert(t, !p.sel[keyForSpan(p.spans[1])])
+	assert.Assert(t, !p.sel[keyForSpan(p.spans[2])])
 
 	got := p.selected()
 	assert.DeepEqual(t, got, []string{"src/main.go"})
+}
+
+func TestPickerDuplicateSelectionOutputsEachOccurrence(t *testing.T) {
+	lines := []string{
+		"src/main.go src/main.go",
+	}
+	spans := findPaths(lines)
+	p := newPicker()
+	p.appendData(plainLines(lines), spans)
+	p.inputDone = true
+
+	p.toggleCurrent() // first occurrence
+	p.moveDown()
+	p.toggleCurrent() // second occurrence
+
+	got := p.selected()
+	assert.DeepEqual(t, got, []string{"src/main.go", "src/main.go"})
 }
 
 func TestPickerHandleKey(t *testing.T) {
@@ -181,7 +198,7 @@ func TestPickerHandleKey(t *testing.T) {
 	// Tab toggles, advances cursor, and redraws.
 	action = p.handleKey(vaxis.Key{Keycode: vaxis.KeyTab})
 	assert.Equal(t, action, actionRedraw)
-	assert.Equal(t, p.sel[p.pathIdx["./src/main.go"]], true)
+	assert.Equal(t, p.sel[keyForSpan(p.spans[0])], true)
 	assert.Equal(t, p.cursor, 1)
 
 	// Up arrow.
@@ -336,15 +353,15 @@ func TestPickerSpanStyle(t *testing.T) {
 	cursorText := p.spans[p.cursor].Text
 
 	// Cursor span: reverse video.
-	got := p.spanStyle("src/main.go", true, cursorText)
+	got := p.spanStyle(p.spans[0], true, cursorText)
 	assert.Equal(t, got, styleCursor)
 
-	// Same path, not cursor: blue underline.
-	got = p.spanStyle("src/main.go", false, cursorText)
-	assert.Equal(t, got, styleSamePath)
+	// Same path, not cursor: plain underline.
+	got = p.spanStyle(p.spans[1], false, cursorText)
+	assert.Equal(t, got, stylePath)
 
 	// Different path, not cursor: plain underline.
-	got = p.spanStyle("other/file.go", false, cursorText)
+	got = p.spanStyle(p.spans[2], false, cursorText)
 	assert.Equal(t, got, stylePath)
 
 	// Selected path, not cursor, not same as cursor: green underline.
@@ -353,12 +370,12 @@ func TestPickerSpanStyle(t *testing.T) {
 	p.toggleCurrent() // select other/file.go
 	p.moveFirst()
 	cursorText = p.spans[p.cursor].Text
-	got = p.spanStyle("other/file.go", false, cursorText)
+	got = p.spanStyle(p.spans[2], false, cursorText)
 	assert.Equal(t, got, styleSelected)
 
 	// Cursor + selected.
 	p.toggleCurrent() // select src/main.go
-	got = p.spanStyle("src/main.go", true, cursorText)
+	got = p.spanStyle(p.spans[0], true, cursorText)
 	assert.Equal(t, got, styleCursorSelected)
 }
 
@@ -616,9 +633,11 @@ func TestPickerSearchHighlight(t *testing.T) {
 	pathHL := stylePath
 	pathHL.Foreground = styleSearchMatch.Foreground
 	pathHL.Background = styleSearchMatch.Background
-	samePathHL := styleSamePath
-	samePathHL.Foreground = styleSearchMatch.Foreground
-	samePathHL.Background = styleSearchMatch.Background
+
+	altBase := vaxis.Style{Foreground: vaxis.IndexColor(4), UnderlineStyle: vaxis.UnderlineSingle}
+	altHL := altBase
+	altHL.Foreground = styleSearchMatch.Foreground
+	altHL.Background = styleSearchMatch.Background
 
 	// Single match in middle.
 	segs := appendSearchHighlight(nil, "src/main.go", stylePath, pathHL, re)
@@ -634,14 +653,14 @@ func TestPickerSearchHighlight(t *testing.T) {
 		{Text: "other/file.go", Style: pathHL},
 	})
 
-	// Multiple matches with samePath base style.
+	// Multiple matches with a non-default base style.
 	re2 := regexp.MustCompile("a")
-	segs = appendSearchHighlight(nil, "abc/abc", styleSamePath, samePathHL, re2)
+	segs = appendSearchHighlight(nil, "abc/abc", altBase, altHL, re2)
 	assert.DeepEqual(t, segs, []vaxis.Segment{
-		{Text: "a", Style: samePathHL},
-		{Text: "bc/", Style: styleSamePath},
-		{Text: "a", Style: samePathHL},
-		{Text: "bc", Style: styleSamePath},
+		{Text: "a", Style: altHL},
+		{Text: "bc/", Style: altBase},
+		{Text: "a", Style: altHL},
+		{Text: "bc", Style: altBase},
 	})
 
 	// Match at start and end.

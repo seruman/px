@@ -27,6 +27,17 @@ type indexedSpan struct {
 	idx  int
 }
 
+type spanKey struct {
+	line  int
+	start int
+	end   int
+	text  string
+}
+
+func keyForSpan(s Span) spanKey {
+	return spanKey{line: s.Line, start: s.Start, end: s.End, text: s.Text}
+}
+
 func generateHintLabels(n int) []string {
 	if n <= 0 {
 		return nil
@@ -52,11 +63,9 @@ func generateHintLabels(n int) []string {
 }
 
 type Picker struct {
-	lines   []styledLine
-	spans   []Span
-	unique  []string
-	pathIdx map[string]int
-	sel     map[int]bool
+	lines []styledLine
+	spans []Span
+	sel   map[spanKey]bool
 
 	cursor    int
 	viewTop   int
@@ -77,10 +86,7 @@ type Picker struct {
 }
 
 func newPicker() *Picker {
-	return &Picker{
-		pathIdx: make(map[string]int),
-		sel:     make(map[int]bool),
-	}
+	return &Picker{sel: make(map[spanKey]bool)}
 }
 
 func (p *Picker) appendData(lines []styledLine, spans []Span) {
@@ -98,14 +104,6 @@ func (p *Picker) appendData(lines []styledLine, spans []Span) {
 		}
 		return cmp.Compare(a.Start, b.Start)
 	})
-
-	for _, s := range spans {
-		if _, ok := p.pathIdx[s.Text]; ok {
-			continue
-		}
-		p.pathIdx[s.Text] = len(p.unique)
-		p.unique = append(p.unique, s.Text)
-	}
 
 	if curSpan != (Span{}) {
 		for i, s := range p.spans {
@@ -143,9 +141,9 @@ func (p *Picker) selected() []string {
 	}
 
 	var texts []string
-	for i, text := range p.unique {
-		if p.sel[i] {
-			texts = append(texts, text)
+	for _, s := range p.spans {
+		if p.sel[keyForSpan(s)] {
+			texts = append(texts, s.Text)
 		}
 	}
 
@@ -153,11 +151,11 @@ func (p *Picker) selected() []string {
 }
 
 func (p *Picker) toggleCurrent() {
-	idx := p.pathIdx[p.spans[p.cursor].Text]
-	if p.sel[idx] {
-		delete(p.sel, idx)
+	key := keyForSpan(p.spans[p.cursor])
+	if p.sel[key] {
+		delete(p.sel, key)
 	} else {
-		p.sel[idx] = true
+		p.sel[key] = true
 	}
 }
 
@@ -329,7 +327,7 @@ func (p *Picker) handleHintKey(key vaxis.Key) inputAction {
 
 	for _, hl := range p.hintLabels {
 		if hl.label == p.hintBuf {
-			p.sel = make(map[int]bool)
+			p.sel = make(map[spanKey]bool)
 			p.cursor = hl.spanIdx
 			p.exitHintMode()
 			return actionConfirm
@@ -614,10 +612,6 @@ func (p *Picker) draw(vx *vaxis.Vaxis) {
 
 var (
 	stylePath     = vaxis.Style{UnderlineStyle: vaxis.UnderlineSingle}
-	styleSamePath = vaxis.Style{
-		Foreground:     vaxis.IndexColor(4),
-		UnderlineStyle: vaxis.UnderlineSingle,
-	}
 	styleCursor   = vaxis.Style{Attribute: vaxis.AttrReverse}
 	styleSelected = vaxis.Style{
 		Foreground:     vaxis.IndexColor(2),
@@ -642,9 +636,8 @@ var (
 	}
 )
 
-func (p *Picker) spanStyle(text string, isCursor bool, cursorText string) vaxis.Style {
-	idx := p.pathIdx[text]
-	selected := p.sel[idx]
+func (p *Picker) spanStyle(span Span, isCursor bool, _ string) vaxis.Style {
+	selected := p.sel[keyForSpan(span)]
 
 	switch {
 	case isCursor && selected:
@@ -653,8 +646,6 @@ func (p *Picker) spanStyle(text string, isCursor bool, cursorText string) vaxis.
 		return styleCursor
 	case selected:
 		return styleSelected
-	case text == cursorText:
-		return styleSamePath
 	default:
 		return stylePath
 	}
@@ -689,7 +680,7 @@ func (p *Picker) drawPlainLine(win vaxis.Window, row int, line string, lineIdx i
 		}
 
 		isCursor := s.Line == curSpan.Line && s.Start == curSpan.Start
-		style := p.spanStyle(s.Text, isCursor, curSpan.Text)
+		style := p.spanStyle(s, isCursor, curSpan.Text)
 		spanText := line[s.Start:s.End]
 
 		if p.searchRe != nil && p.isSearchHit(is.idx) {
@@ -749,7 +740,7 @@ func (p *Picker) drawStyledLine(win vaxis.Window, row int, sl styledLine, lineId
 			is := lineSpans[si]
 			s := is.span
 			isCursor := s.Line == curSpan.Line && s.Start == curSpan.Start
-			style = p.mergeSpanStyle(cell.Style, s.Text, isCursor, curSpan.Text)
+			style = p.mergeSpanStyle(cell.Style, s, isCursor, curSpan.Text)
 
 			if p.searchRe != nil && p.isSearchHit(is.idx) {
 				for _, m := range searchMatches {
@@ -840,9 +831,8 @@ func hintColForSpan(sl styledLine, span Span) int {
 	return colForByte(sl, span.Start)
 }
 
-func (p *Picker) mergeSpanStyle(base vaxis.Style, text string, isCursor bool, cursorText string) vaxis.Style {
-	idx := p.pathIdx[text]
-	selected := p.sel[idx]
+func (p *Picker) mergeSpanStyle(base vaxis.Style, span Span, isCursor bool, _ string) vaxis.Style {
+	selected := p.sel[keyForSpan(span)]
 	s := base
 
 	switch {
@@ -853,9 +843,6 @@ func (p *Picker) mergeSpanStyle(base vaxis.Style, text string, isCursor bool, cu
 		s.Attribute |= vaxis.AttrReverse
 	case selected:
 		s.Foreground = vaxis.IndexColor(2)
-		s.UnderlineStyle = vaxis.UnderlineSingle
-	case text == cursorText:
-		s.Foreground = vaxis.IndexColor(4)
 		s.UnderlineStyle = vaxis.UnderlineSingle
 	default:
 		s.UnderlineStyle = vaxis.UnderlineSingle
