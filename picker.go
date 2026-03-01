@@ -620,8 +620,8 @@ var (
 	}
 	styleCursorSelected = vaxis.Style{
 		Foreground: vaxis.IndexColor(15),
-		Background: vaxis.IndexColor(2),
-		Attribute:  vaxis.AttrReverse,
+		Background: vaxis.IndexColor(6),
+		Attribute:  vaxis.AttrBold,
 	}
 	styleSearchMatch = vaxis.Style{
 		Foreground: vaxis.IndexColor(15),
@@ -840,8 +840,9 @@ func (p *Picker) mergeSpanStyle(base vaxis.Style, span Span, isCursor bool, _ st
 	switch {
 	case isCursor && selected:
 		s.Foreground = vaxis.IndexColor(15)
-		s.Background = vaxis.IndexColor(2)
-		s.Attribute |= vaxis.AttrReverse
+		s.Background = vaxis.IndexColor(6)
+		s.UnderlineStyle = vaxis.UnderlineSingle
+		s.Attribute |= vaxis.AttrBold
 	case isCursor:
 		s.Attribute |= vaxis.AttrReverse
 	case selected:
